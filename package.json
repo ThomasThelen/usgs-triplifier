@@ -25,6 +25,7 @@
   },
   "devDependencies": {},
   "dependencies": {
+    "axios": "0.21.1",
     "@graphy/content.nt.read": "^4.0.5",
     "@graphy/content.ttl.read": "^4.0.5",
     "@graphy/content.ttl.write": "^4.0.5",
@@ -33,6 +34,7 @@
     "colors": "^1.4.0",
     "csv-parse": "^4.8.5",
     "mkdirp": "^1.0.3",
+    "node-fetch": "^2.6.1",
     "ogr2ogr": "^1.5.0",
     "pg": "^7.18.1",
     "pg-cursor": "^2.1.5",
