@@ -33,7 +33,7 @@
 
             owlim:check-for-inconsistencies "false" ;
             owlim:disable-sameAs  "true" ;
-            owlim:query-timeout  "30" ;
+            owlim:query-timeout  "3600" ;
             owlim:query-limit-results  "0" ;
             owlim:throw-QueryEvaluationException-on-timeout "true" ;
             owlim:read-only "false" ;
