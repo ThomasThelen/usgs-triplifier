@@ -1,5 +1,6 @@
 # Dockerfile for USGS Triplifier
 FROM thomasthelen/triplifier-base:latest
+MAINTAINER DataONE <support@dataone.org>
 
 # source code
 WORKDIR /src/app
