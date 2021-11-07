@@ -11,6 +11,7 @@ RUN apt-get -y update \
     && apt-get install -yq \
         curl \
         git \
+        vim \
         libpq-dev \
         postgresql-client-common \
         postgresql-client \
