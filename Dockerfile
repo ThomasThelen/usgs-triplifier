@@ -1,5 +1,5 @@
 # Dockerfile for USGS Triplifier
-FROM thomasthelen/triplifier-base:latest
+FROM gnislinkeddata/triplifier-base
 MAINTAINER DataONE <support@dataone.org>
 
 # source code
