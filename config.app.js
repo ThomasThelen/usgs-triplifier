@@ -1,8 +1,8 @@
 
-const S_DATA_HOST = process.env.USGS_DATA_HOST || 'gnis-ld.org';
-const S_DATA_PATH = process.env.USGS_DATA_PATH || '';
+const S_DATA_HOST = 'stage.gnis-ld.org';
+// const S_DATA_PATH = process.env.USGS_DATA_PATH || 'stage.gnis-ld.org';
 
-const P_DATA_URI = `https://${S_DATA_HOST}${S_DATA_PATH}`;
+const P_DATA_URI = `https://${S_DATA_HOST}`;
 const P_RDF_URI = `${P_DATA_URI}/lod`;
 const P_GEOM_URI = `${P_DATA_URI}/geometry`;
 
