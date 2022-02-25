@@ -1,7 +1,6 @@
 
-const S_DATA_HOST = process.env.DEPLOYMENT_HOST || 'http://gnis-ld.org';
+const P_DATA_URI = process.env.DEPLOYMENT_HOST || 'http://gnis-ld.org';
 
-const P_DATA_URI = `${S_DATA_HOST}`;
 const P_RDF_URI = `${P_DATA_URI}/lod`;
 const P_GEOM_URI = `${P_DATA_URI}/geometry`;
 
