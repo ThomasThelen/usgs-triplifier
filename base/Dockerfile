@@ -1,4 +1,4 @@
-FROM node:lts-buster
+FROM node:lts-bullseye
 MAINTAINER DataONE <support@dataone.org>
 
 # add PostgreSQL keys
