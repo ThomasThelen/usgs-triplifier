@@ -1,3 +1,3 @@
-This is the base image used for the triplifier. It handles installing libraries that can take a while to build during development (eg GDAL). Since this layer doesn't need to change often, it's used as a base image for the triplifier.
+# Triplifier Base Image
 
-To build and push run `docker build -t gnislinkeddata/triplifier-base .` and `docker push gnislinkeddata/triplifier-base`.
+This is the base image used for the triplifier. It handles building and installing the core libraries that the triplifier uses. These dependencies are large and can take a while to build. Since the dependencies rarely change, they're built into this base image which is then used by the triplifier's main Dockerfile.
