@@ -1,5 +1,5 @@
 FROM node:lts-bullseye
-MAINTAINER DataONE <support@dataone.org>
+LABEL MAINTAINER "DataONE <support@dataone.org>"
 
 # add PostgreSQL keys
 RUN wget -q https://www.postgresql.org/media/keys/ACCC4CF8.asc -O - | apt-key add -

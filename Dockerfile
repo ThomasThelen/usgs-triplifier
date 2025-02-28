@@ -1,6 +1,6 @@
 # Dockerfile for USGS Triplifier
 FROM gnislinkeddata/triplifier-base
-MAINTAINER DataONE <support@dataone.org>
+LABEL MAINTAINER "DataONE <support@dataone.org>"
 
 # source code
 WORKDIR /src/app
