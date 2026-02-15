@@ -27,7 +27,7 @@ The dockerfile in the `docker` folder is used to create the image for serving Gr
 All contributions are welcome! For more information how how to fork, branch, and make pull requests visit the [contributing](./CONTRIBUTING.md) guide.
 ### Testing
 
-There are two ways to play with things:
+There are two ways to interact with things:
 
 1. Directly calling the ugs-triplifier package via `python -m <one of the modules here>`
 2. By running the local docker stack and letting automation download, triplify, and upload

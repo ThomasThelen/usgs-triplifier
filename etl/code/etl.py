@@ -1,3 +1,8 @@
+import logging
+import sys
+
+import requests
+
 from usgs_triplifier.lib.dataset_downloader import DatasetDownloader
 from usgs_triplifier.lib.gnis import (
     UnitsTriplifier,
@@ -5,68 +10,56 @@ from usgs_triplifier.lib.gnis import (
     NamesTriplifier,
     HistoryTriplifier,
 )
-from config import Config
-
+from config import config
 from graphdb_adapter import GraphDBAdapter
-import logging
-import requests
 
-logger = logging.Logger(name="ETL Logger")
+logging.basicConfig(
+    level=logging.INFO,
+    stream=sys.stdout,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger("etl")
 
-logger.info("Downloading...")
-DatasetDownloader.download()
+
+def main() -> None:
+    if config.download_data:
+        logger.info("Downloading...")
+        DatasetDownloader.download()
+    else:
+        logger.info("DOWNLOAD_DATA is disabled, skipping download")
+
+    logger.info("Transforming into RDF...")
+    for triplifier in [
+        FeaturesTriplifier,
+        NamesTriplifier,
+        HistoryTriplifier,
+        UnitsTriplifier,
+    ]:
+        triplifier()
+
+    logger.info("Configuring GraphDB")
+    graphdb_adapter = GraphDBAdapter()
+    steps = [
+        ("Enabling GraphDB security", graphdb_adapter.enable_security),
+        ("Setting GraphDB password", graphdb_adapter.set_password),
+        ("Creating repository", graphdb_adapter.create_repository_from_config),
+        ("Copying triples to import directory", graphdb_adapter.copy_triples),
+        ("Loading data into GraphDB", graphdb_adapter.upload),
+        ("Setting GraphDB permissions", graphdb_adapter.enable_guest_access),
+    ]
+    for description, step in steps:
+        logger.info(description)
+        try:
+            step()
+        except requests.exceptions.RequestException as error:
+            logger.error(f"{description} failed: {error}")
+            if getattr(error, "response", None) is not None:
+                logger.error(f"Response status code: {error.response.status_code}")
+                logger.error(f"Response body: {error.response.text}")
+            sys.exit(1)
+
+    logger.info("ETL complete")
 
 
-logger.info("Transforming into RDF...")
-for triplifier in [
-    FeaturesTriplifier,
-    NamesTriplifier,
-    HistoryTriplifier,
-    UnitsTriplifier,
-]:
-    triplifier()
-
-logger.info("Configuring GraphDB")
-graphdb_adapter = GraphDBAdapter()
-try:
-    logger.info("Enabling GraphDB security")
-    graphdb_adapter.enable_security()
-    logger.info("Finished enabling security")
-except requests.exceptions.RequestException as security_err:
-    logger.error(f"Failed to enable GraphDB security: {security_err}")
-
-try:
-    logger.info("Setting GraphDB password")
-    graphdb_adapter.set_password()
-    logger.info("Finished setting password")
-except requests.exceptions.RequestException as pass_err:
-    logger.error(f"Failed to set the GraphDB password: {pass_err}")
-
-try:
-    logger.info("Creating repository")
-    graphdb_adapter.create_repository_from_config()
-    logger.info("Finished creating repository")
-except requests.exceptions.RequestException as new_repo_err:
-    logger.error(f"Failed to create the GraphDB repository: {new_repo_err}")
-
-try:
-    logger.info("Copy triples to import directory")
-    graphdb_adapter.copy_triples()
-    logger.info("Finished copying triples")
-except requests.exceptions.RequestException as new_repo_err:
-    logger.error(f"Failed to copy triples: {new_repo_err}")
-
-try:
-    logger.info("Loading data into GraphDB")
-    graphdb_adapter.load(str(Config.output_directory))
-    logger.info("Finished loading data")
-except requests.exceptions.RequestException as load_err:
-    logger.error(f"Failed to load the data into GraphDB: {load_err}")
-
-try:
-    logger.info("Setting GraphDB permissions")
-    graphdb_adapter.enable_guest_access()
-    logger.info("Finished setting permissions")
-except requests.exceptions.RequestException as permission_err:
-    logger.error(f"Failed to set the GraphDB permissions: {permission_err}")
-    
+if __name__ == "__main__":
+    main()

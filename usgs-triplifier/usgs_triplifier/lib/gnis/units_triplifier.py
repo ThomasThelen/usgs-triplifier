@@ -1,9 +1,13 @@
-import re
-
 from rdflib import Graph, Literal, URIRef
 from rdflib.namespace import OWL
 
-from .triplifier import triplify_all, TriplifierConfig, FieldDescriptor
+from .triplifier import (
+    triplify_all,
+    TriplifierConfig,
+    FieldDescriptor,
+    clean,
+    normalize_feature_id,
+)
 from ...config import config
 
 
@@ -65,15 +69,6 @@ class UnitsTriplifier:
         )
         triplify_all(triples_mapping, "GovernmentUnits", "units")
 
-    def clean(self, s: str) -> str:
-        """
-        Clean IRIs by replacing non-word characters with underscores.
-
-        :param s: String to clean.
-        :return: Cleaned string with non-word characters replaced by underscores.
-        """
-        return re.sub(r"[^\w]", "_", s)
-
     def get_subject(self, row: dict, graph: Graph) -> str | None:
         """
         Generate subject IRI for a GNIS unit and add alias sameAs relation.
@@ -82,13 +77,7 @@ class UnitsTriplifier:
         :param graph: RDF graph to add sameAs relations to.
         :return: Subject IRI string or None if invalid unit type.
         """
-        # Get feature ID (handle both string and int)
-        feature_id_raw = row.get("feature_id", "")
-        if isinstance(feature_id_raw, (int, float)):
-            feature_id = str(int(feature_id_raw))
-        else:
-            feature_id = str(feature_id_raw).lstrip("0") or "0"
-
+        feature_id = normalize_feature_id(row.get("feature_id", ""))
         feature_iri = f"gnisf:{feature_id}"
 
         # Build alias based on unit type
@@ -97,11 +86,11 @@ class UnitsTriplifier:
         county_name = str(row.get("county_name", ""))
 
         if unit_type == "COUNTY":
-            alias = f"{self.clean(state_name)}.{self.clean(county_name)}"
+            alias = f"{clean(state_name)}.{clean(county_name)}"
         elif unit_type == "STATE":
-            alias = self.clean(state_name)
+            alias = clean(state_name)
         else:
-            # Skip unknown unit types
+            # Skip COUNTRY and other unit types (not in original output)
             return None
 
         # Add owl:sameAs from alias to feature
@@ -137,14 +126,15 @@ class UnitsTriplifier:
 
     def county_numeric_object(self, value: str, row: dict, graph: Graph) -> Literal:
         """
-        Convert county numeric code to literal.
+        Convert county numeric code to literal (zero-padded to 3 digits).
 
         :param value: County numeric code value.
         :param row: Dictionary representing a row from the GPKG table.
         :param graph: RDF graph (unused but required by interface).
         :return: RDF Literal containing the county code.
         """
-        return Literal(value)
+        # Zero-pad to 3 digits to match original output format
+        return Literal(value.zfill(3))
 
     def county_name_object(self, value: str, row: dict, graph: Graph) -> Literal:
         """
@@ -200,7 +190,7 @@ class UnitsTriplifier:
         if str(row.get("unit_type", "")) == "COUNTY":
             # For counties, link to state alias
             return {
-                "gnis:state": [f"gnisf-alias:{self.clean(value)}"],
+                "gnis:state": [f"gnisf-alias:{clean(value)}"],
             }
         else:
             # For states, add state name as literal
@@ -217,7 +207,7 @@ class UnitsTriplifier:
         :param graph: RDF graph (unused but required by interface).
         :return: URIRef for the country alias.
         """
-        return config.prefix_list["gnisf-alias"][self.clean(value)]
+        return config.prefix_list["gnisf-alias"][clean(value)]
 
     def feature_name_object(self, value: str, row: dict, graph: Graph) -> Literal:
         """

@@ -1,10 +1,15 @@
-import re
 from datetime import datetime
 
-from rdflib import Graph, Literal, Namespace, URIRef
+from rdflib import Graph, Literal, URIRef
 from rdflib.namespace import OWL, XSD
 
-from .triplifier import triplify_all, TriplifierConfig, FieldDescriptor
+from .triplifier import (
+    triplify_all,
+    TriplifierConfig,
+    FieldDescriptor,
+    clean,
+    normalize_feature_id,
+)
 from ...config import config
 
 # Class name mappings
@@ -39,10 +44,6 @@ class FeaturesTriplifier:
             "feature_id": FieldDescriptor(
                 predicate="gnis:featureId",
                 object=self.feature_id_object,
-            ),
-            "feature_name": FieldDescriptor(
-                predicate="rdfs:label",
-                object=self.feature_name_object,
             ),
             "feature_class": FieldDescriptor(
                 predicate="rdf:type",
@@ -83,15 +84,6 @@ class FeaturesTriplifier:
         triplify_all(triples_mapping, "DomesticNames", "features")
         self._on_complete(geoms_file)
 
-    def clean(self, s: str) -> str:
-        """
-        Clean IRIs by replacing non-word characters with underscores.
-
-        :param s: String to clean.
-        :return: Cleaned string with non-word characters replaced by underscores.
-        """
-        return re.sub(r"[^\w]", "_", s)
-
     def get_subject(self, row: dict, graph: Graph) -> str | None:
         """
         Generate subject IRI for a GNIS feature.
@@ -100,12 +92,7 @@ class FeaturesTriplifier:
         :param graph: RDF graph (unused but required by interface).
         :return: Subject IRI string or None if invalid.
         """
-        # Get feature ID (handle both string and int)
-        feature_id_raw = row.get("feature_id", "")
-        if isinstance(feature_id_raw, (int, float)):
-            feature_id = str(int(feature_id_raw))
-        else:
-            feature_id = str(feature_id_raw).lstrip("0") or "0"
+        feature_id = normalize_feature_id(row.get("feature_id", ""))
 
         # Get and normalize class name
         feature_class = str(row.get("feature_class", "")).replace(" ", "")
@@ -118,7 +105,7 @@ class FeaturesTriplifier:
         # Build feature alias
         feature_name = str(row.get("feature_name", ""))
         county_name = str(row.get("county_name", ""))
-        alias_id = f"{self.clean(state_name)}.{self.clean(county_name)}.{feature_class}.{self.clean(feature_name)}"
+        alias_id = f"{clean(state_name)}.{clean(county_name)}.{feature_class}.{clean(feature_name)}"
 
         # Track aliases for later disambiguation
         if alias_id in feature_aliases:
@@ -141,17 +128,6 @@ class FeaturesTriplifier:
         :return: RDF Literal containing the feature ID.
         """
         return Literal(value)
-
-    def feature_name_object(self, value: str, row: dict, graph: Graph) -> Literal:
-        """
-        Convert feature name to language-tagged literal.
-
-        :param value: Feature name value.
-        :param row: Dictionary representing a row from the GPKG table.
-        :param graph: RDF graph (unused but required by interface).
-        :return: RDF Literal with English language tag.
-        """
-        return Literal(value, lang="en")
 
     def feature_class_object(self, value: str, row: dict, graph: Graph) -> URIRef:
         """
@@ -178,7 +154,7 @@ class FeaturesTriplifier:
         """
         if not value:
             return ""
-        return config.prefix_list["gnisf-alias"][self.clean(value)]
+        return config.prefix_list["gnisf-alias"][clean(value)]
 
     def county_object(self, value: str, row: dict, graph: Graph) -> URIRef:
         """
@@ -192,7 +168,7 @@ class FeaturesTriplifier:
         if value:
             state_name = str(row.get("state_name", ""))
             return config.prefix_list["gnisf-alias"][
-                f"{self.clean(state_name)}.{self.clean(value)}"
+                f"{clean(state_name)}.{clean(value)}"
             ]
         return config.prefix_list["gnis"]["UnknownCounty"]
 
@@ -217,15 +193,16 @@ class FeaturesTriplifier:
                 return None
 
             lat = value
-            lng = row.get("prim_long_dec", "")
-            if isinstance(lng, float):
-                lng = str(lng)
+            lng_raw = row.get("prim_long_dec", "")
+            # Skip the geometry entirely when the longitude is missing (None,
+            # NaN, or empty) so no 'POINT(nan ...)' WKT is ever produced.
+            if lng_raw is None or (isinstance(lng_raw, float) and lng_raw != lng_raw):
+                return None
+            lng = str(lng_raw)
+            if not lng:
+                return None
 
-            feature_id_raw = row.get("feature_id", "")
-            if isinstance(feature_id_raw, (int, float)):
-                feature_id = str(int(feature_id_raw))
-            else:
-                feature_id = str(feature_id_raw).lstrip("0") or "0"
+            feature_id = normalize_feature_id(row.get("feature_id", ""))
 
             geom_iri = f"{config.geo_base}/point/gnisf.{feature_id}"
             point_wkt = f"POINT({lng} {lat})"
@@ -252,12 +229,12 @@ class FeaturesTriplifier:
 
     def elev_in_ft_field(self, value: str, row: dict, graph: Graph) -> dict | None:
         """
-        Process elevation in feet and generate elevation node with QUDT properties.
+        Process elevation in feet and return nested blank node with QUDT properties.
 
         :param value: Elevation value in feet.
         :param row: Dictionary representing a row from the GPKG table.
-        :param graph: RDF graph to add elevation triples to.
-        :return: Dictionary of predicate-object pairs or None if no elevation.
+        :param graph: RDF graph (unused but required by interface).
+        :return: Dictionary with nested blank node properties or None if no elevation.
         """
         if not value or value == "" or value == "0":
             return None
@@ -270,25 +247,11 @@ class FeaturesTriplifier:
             if not elev_value:
                 return None
 
-        # Create elevation node IRI
-        elevation_iri = f"gnis:Elevation.{elev_value}ft"
-        elevation_uri = config.prefix_list["gnis"][f"Elevation.{elev_value}ft"]
-
-        # Add elevation properties to graph
-        qudt = Namespace("http://qudt.org/schema/qudt/")
-        unit = Namespace("http://qudt.org/vocab/unit/")
-
-        graph.add(
-            (
-                elevation_uri,
-                qudt["numericValue"],
-                Literal(elev_value, datatype=XSD.double),
-            )
-        )
-        graph.add((elevation_uri, qudt["unit"], unit["FT"]))
-
         return {
-            "gnis:elevation": [elevation_iri],
+            "gnis:elevation": {
+                "qudt:numericValue": [f"^xsd:double\"{elev_value}"],
+                "qudt:unit": ["unit:FT"],
+            },
         }
 
     def map_name_object(self, value: str, row: dict, graph: Graph) -> Literal:
