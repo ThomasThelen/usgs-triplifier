@@ -41,7 +41,9 @@ def triplify_text_files(
     zip_files = sorted(config.input_directory.glob(file_pattern))
 
     if not zip_files:
-        print(f"No text zip files found matching {file_pattern} in {config.input_directory}")
+        print(
+            f"No text zip files found matching {file_pattern} in {config.input_directory}"
+        )
         return Graph()
 
     print(f"Found {len(zip_files)} text zip files")

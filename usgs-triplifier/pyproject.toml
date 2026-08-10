@@ -16,9 +16,15 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=6.0.0",
     "ruff>=0.15.1",
 ]
 
 [tool.setuptools.packages.find]
 include = ["usgs_triplifier*"]
 exclude = ["usgs_triplifier.data*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

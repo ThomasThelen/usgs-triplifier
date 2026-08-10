@@ -6,3 +6,5 @@ usgs-triplifier/dist
 **/__pycache__**
 **/.ruff_cache
 **/**.egg-info
+**/.pytest_cache
+.coverage

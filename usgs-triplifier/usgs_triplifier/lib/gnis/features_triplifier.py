@@ -249,7 +249,7 @@ class FeaturesTriplifier:
 
         return {
             "gnis:elevation": {
-                "qudt:numericValue": [f"^xsd:double\"{elev_value}"],
+                "qudt:numericValue": [f'^xsd:double"{elev_value}'],
                 "qudt:unit": ["unit:FT"],
             },
         }
