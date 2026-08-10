@@ -41,7 +41,10 @@ class GraphDBAdapter:
             f"{self.base_url}/rest/security",
             headers={"Accept": "application/json"},
         )
-        if check_response.status_code == 200 and check_response.text.strip().lower() == "true":
+        if (
+            check_response.status_code == 200
+            and check_response.text.strip().lower() == "true"
+        ):
             self.logger.info("GraphDB security is already enabled.")
             return
 
@@ -126,7 +129,9 @@ class GraphDBAdapter:
         file_paths = list(self.graphdb_import_path.glob("*.ttl"))
 
         if not file_paths:
-            self.logger.warning("Failed to find any triple files that should be sent to GraphDB")
+            self.logger.warning(
+                "Failed to find any triple files that should be sent to GraphDB"
+            )
             return
 
         file_names = [f.name for f in file_paths]
