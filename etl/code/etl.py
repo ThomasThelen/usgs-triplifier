@@ -4,6 +4,7 @@ import sys
 import requests
 
 from usgs_triplifier.lib.dataset_downloader import DatasetDownloader
+from usgs_triplifier.lib.dataset_metadata import write_dataset_metadata
 from usgs_triplifier.lib.gnis import (
     UnitsTriplifier,
     FeaturesTriplifier,
@@ -36,6 +37,9 @@ def main() -> None:
         UnitsTriplifier,
     ]:
         triplifier()
+
+    logger.info("Writing dataset metadata")
+    write_dataset_metadata()
 
     logger.info("Configuring GraphDB")
     graphdb_adapter = GraphDBAdapter()
