@@ -23,6 +23,23 @@ class Config(BaseSettings):
         default=_default_data_dir / "output" / "gnis", alias="RDF_OUTPUT_DIRECTORY"
     )
 
+    # Directory the release dump (gnis-ld-<yymmdd>.nt.gz + .meta.json sidecar)
+    # is exported to; the website serves this directory at /archive
+    archive_output_directory: Path = Field(
+        default=_default_data_dir / "archive", alias="ARCHIVE_OUTPUT_DIRECTORY"
+    )
+
+    # Public website base URL, used for release download links in metadata
+    site_base: str = Field(default="https://gnis-ld.org", alias="SITE_BASE")
+
+    # Re-triplifying an archived dump (through 2025) rather than current USGS
+    # sources. Elevation is only present in the archived dumps.
+    archive_mode: bool = Field(default=False, alias="ARCHIVE_MODE")
+
+    # Override the build timestamp (YYYY-MM-DD) for reruns and backfills;
+    # defaults to the time of the run
+    release_date: str | None = Field(default=None, alias="RELEASE_DATE")
+
     # Static prefixes that don't depend on config values
     _static_prefixes: ClassVar[dict[str, Namespace]] = {
         "rdf": Namespace("http://www.w3.org/1999/02/22-rdf-syntax-ns#"),

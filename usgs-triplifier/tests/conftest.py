@@ -16,6 +16,8 @@ def data_dirs(tmp_path, monkeypatch):
     output_dir.mkdir()
     monkeypatch.setattr(config, "input_directory", input_dir)
     monkeypatch.setattr(config, "output_directory", output_dir)
+    # Isolate the archive too (not created: code that needs it mkdirs it)
+    monkeypatch.setattr(config, "archive_output_directory", tmp_path / "archive")
     return input_dir, output_dir
 
 
