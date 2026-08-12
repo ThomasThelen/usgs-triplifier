@@ -6,8 +6,6 @@ services:
     ports:
       - "7200:7200"
     volumes:
-      # Mount source code for development (changes reflected without rebuild).
-      # PYTHONPATH=/app below makes the mounted package shadow the installed copy.
       - ../usgs-triplifier/usgs_triplifier:/app/usgs_triplifier
       - ../etl/code:/app/code
     healthcheck:
