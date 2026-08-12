@@ -60,7 +60,6 @@ class FeaturesTriplifier:
                 optional=True,
             ),
             "prim_lat_dec": self.make_prim_lat_dec_field(geoms_file),
-            "elev_in_ft": self.elev_in_ft_field,
             "map_name": FieldDescriptor(
                 predicate="gnis:mapName",
                 object=self.map_name_object,
@@ -77,6 +76,11 @@ class FeaturesTriplifier:
                 optional=True,
             ),
         }
+        # Elevation (3DEP-derived) shipped in the GNIS dumps only through
+        # 2025; current USGS sources omit it, so gnis:elevation is emitted
+        # only when re-triplifying an archived dump.
+        if config.archive_mode:
+            field_mappings["elev_in_ft"] = self.elev_in_ft_field
         triples_mapping = TriplifierConfig(
             subject=self.get_subject,
             fields=field_mappings,

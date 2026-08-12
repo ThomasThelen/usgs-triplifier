@@ -56,6 +56,8 @@ def _rows():
 def test_features_end_to_end(data_dirs, monkeypatch):
     input_dir, output_dir = data_dirs
     monkeypatch.setattr(features_triplifier, "feature_aliases", {})
+    # Archive mode: historical dumps are the only sources carrying elevation
+    monkeypatch.setattr(config, "archive_mode", True)
     make_gpkg_zip(input_dir, "Gazetteer_National_GPKG.zip", {"DomesticNames": _rows()})
 
     FeaturesTriplifier()
@@ -170,3 +172,16 @@ def test_elev_in_ft_field_guards():
             "qudt:unit": ["unit:FT"],
         },
     }
+
+
+def test_current_sources_omit_elevation(data_dirs, monkeypatch):
+    input_dir, output_dir = data_dirs
+    monkeypatch.setattr(features_triplifier, "feature_aliases", {})
+    make_gpkg_zip(input_dir, "Gazetteer_National_GPKG.zip", {"DomesticNames": _rows()})
+
+    FeaturesTriplifier()
+
+    graph = Graph()
+    graph.parse(output_dir / "features.ttl", format="turtle")
+    gnis = config.prefix_list["gnis"]
+    assert list(graph.subject_objects(gnis["elevation"])) == []
