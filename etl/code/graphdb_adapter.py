@@ -18,8 +18,7 @@ class GraphDBAdapter:
 
     def set_password(self):
         """
-        Set a new password for the administrator account. GraphDB comes with a default admin account
-        which we authenticate with when changing the password.
+        Set a new password for the administrator account.
         """
         response = requests.patch(
             f"{self.base_url}/rest/security/users/{config.graphdb_admin_username}",
@@ -100,6 +99,21 @@ class GraphDBAdapter:
             )
         response.raise_for_status()
         self.logger.info("Created the GraphDB repository.")
+
+    def clear_repository(self):
+        """
+        Remove all statements from the repository.
+
+        Each release fully replaces the previous one: without this, a re-run
+        server-imports the new files on top of the old data and stale values
+        (e.g. a feature's previous name) accumulate alongside current ones.
+        """
+        response = requests.delete(
+            f"{self.base_url}/repositories/{self.repository_id}/statements",
+            auth=self.auth,
+        )
+        response.raise_for_status()
+        self.logger.info("Cleared the previous release from the repository.")
 
     def copy_triples(self):
         """Copies the triples that are generated to GRAPHDB_IMPORT_DIRECTORY"""
