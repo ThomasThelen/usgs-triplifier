@@ -1,0 +1,214 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix geosparql: <http://www.opengis.net/ont/geosparql#> .
+
+@prefix usgs: <http://gnis-ld.org/lod/usgs/ontology/> .
+@prefix gnis: <http://gnis-ld.org/lod/gnis/ontology/> .
+@prefix shapes: <http://gnis-ld.org/lod/gnis/shapes/> .
+
+# SHACL shapes for the generated release data, derived from the gnis and
+# usgs ontologies. Run by the ETL against a sample of every output file
+# before a release is exported: a systematic pipeline bug (wrong datatype,
+# missing label, malformed URI) corrupts every record, so the sample
+# catches it. Targets use targetSubjectsOf/targetClass so no inference
+# pass is needed over the sample.
+#
+# Severity policy: structural guarantees of the pipeline are violations
+# and fail the build; known upstream data quirks (an unparsable source
+# date passes through as a plain literal) are warnings.
+
+shapes: a owl:Ontology ;
+	rdfs:label "GNIS-LD release shapes"@en ;
+	rdfs:seeAlso gnis: , usgs: .
+
+
+# ---- feature records ----
+
+shapes:FeatureRecord a sh:NodeShape ;
+	sh:targetSubjectsOf gnis:featureId ;
+	sh:nodeKind sh:IRI ;
+	sh:pattern "/gnis/feature/[0-9]+$" ;
+	sh:property [
+		sh:path gnis:featureId ;
+		sh:datatype xsd:string ;
+		sh:pattern "^[0-9]+$" ;
+		sh:minCount 1 ;
+		sh:maxCount 1 ;
+	] ;
+	sh:property [
+		sh:path gnis:officialName ;
+		sh:datatype rdf:langString ;
+		sh:maxCount 1 ;
+	] ;
+	sh:property [
+		sh:path gnis:alternativeName ;
+		sh:datatype rdf:langString ;
+	] ;
+	sh:property [
+		sh:path rdfs:label ;
+		sh:datatype rdf:langString ;
+	] ;
+	sh:property [
+		sh:path gnis:mapName ;
+		sh:datatype rdf:langString ;
+		sh:maxCount 1 ;
+	] ;
+	sh:property [
+		sh:path gnis:description ;
+		sh:datatype rdf:langString ;
+	] ;
+	sh:property [
+		sh:path gnis:history ;
+		sh:datatype rdf:langString ;
+	] ;
+	sh:property [
+		sh:path gnis:state ;
+		sh:nodeKind sh:IRI ;
+		sh:maxCount 1 ;
+	] ;
+	sh:property [
+		sh:path gnis:county ;
+		sh:nodeKind sh:IRI ;
+		sh:maxCount 1 ;
+	] ;
+	sh:property [
+		sh:path gnis:dateFeatureCreated ;
+		sh:datatype xsd:date ;
+		sh:maxCount 1 ;
+		sh:severity sh:Warning ;
+	] ;
+	sh:property [
+		sh:path gnis:dateFeatureEdited ;
+		sh:datatype xsd:date ;
+		sh:maxCount 1 ;
+		sh:severity sh:Warning ;
+	] ;
+	sh:property [
+		sh:path gnis:dateNameCreated ;
+		sh:datatype xsd:date ;
+		sh:severity sh:Warning ;
+	] ;
+	sh:property [
+		sh:path gnis:censusGeoid ;
+		sh:datatype xsd:string ;
+		sh:pattern "^[0-9]+$" ;
+		sh:maxCount 1 ;
+	] ;
+	sh:property [
+		sh:path geosparql:hasGeometry ;
+		sh:nodeKind sh:IRI ;
+		sh:maxCount 1 ;
+	] ;
+	sh:property [
+		sh:path gnis:elevation ;
+		sh:node shapes:ElevationQuantity ;
+		sh:maxCount 1 ;
+	] .
+
+
+# ---- geometry ----
+
+shapes:Geometry a sh:NodeShape ;
+	sh:targetSubjectsOf geosparql:asWKT ;
+	sh:nodeKind sh:IRI ;
+	sh:property [
+		sh:path geosparql:asWKT ;
+		sh:datatype geosparql:wktLiteral ;
+		sh:pattern "POINT\\(-?[0-9.]+ -?[0-9.]+\\)" ;
+		sh:minCount 1 ;
+		sh:maxCount 1 ;
+	] .
+
+
+# ---- elevation (archived vintages only) ----
+
+shapes:ElevationQuantity a sh:NodeShape ;
+	sh:property [
+		sh:path qudt:numericValue ;
+		sh:datatype xsd:double ;
+		sh:minCount 1 ;
+		sh:maxCount 1 ;
+	] ;
+	sh:property [
+		sh:path qudt:unit ;
+		sh:nodeKind sh:IRI ;
+		sh:minCount 1 ;
+		sh:maxCount 1 ;
+	] .
+
+
+# ---- administrative divisions ----
+
+shapes:County a sh:NodeShape ;
+	sh:targetClass gnis:County ;
+	sh:property [
+		sh:path gnis:countyCode ;
+		sh:datatype xsd:string ;
+		sh:pattern "^[0-9]{3}$" ;
+		sh:maxCount 1 ;
+	] ;
+	sh:property [
+		sh:path gnis:countyName ;
+		sh:datatype rdf:langString ;
+	] .
+
+shapes:State a sh:NodeShape ;
+	sh:targetClass gnis:State ;
+	sh:property [
+		sh:path gnis:stateCode ;
+		sh:datatype xsd:string ;
+		sh:pattern "^[A-Z]{2}$" ;
+		sh:maxCount 1 ;
+	] ;
+	sh:property [
+		sh:path gnis:stateId ;
+		sh:datatype xsd:string ;
+		sh:pattern "^[0-9]+$" ;
+		sh:maxCount 1 ;
+	] ;
+	sh:property [
+		sh:path gnis:stateName ;
+		sh:datatype rdf:langString ;
+	] .
+
+
+# ---- retention ----
+
+shapes:HistoricalFeature a sh:NodeShape ;
+	sh:targetClass usgs:HistoricalFeature ;
+	sh:property [
+		sh:path gnis:lastAppearedIn ;
+		sh:nodeKind sh:IRI ;
+		sh:pattern "/gnis/release/[0-9]{6}$" ;
+		sh:minCount 1 ;
+	] .
+
+
+# ---- crosswalks and aliases ----
+
+shapes:SameAsLink a sh:NodeShape ;
+	sh:targetSubjectsOf owl:sameAs ;
+	sh:property [
+		sh:path owl:sameAs ;
+		sh:nodeKind sh:IRI ;
+	] .
+
+shapes:CloseMatchLink a sh:NodeShape ;
+	sh:targetSubjectsOf skos:closeMatch ;
+	sh:property [
+		sh:path skos:closeMatch ;
+		sh:nodeKind sh:IRI ;
+	] .
+
+shapes:Disambiguation a sh:NodeShape ;
+	sh:targetSubjectsOf gnis:disambiguatesTo ;
+	sh:property [
+		sh:path gnis:disambiguatesTo ;
+		sh:nodeKind sh:IRI ;
+		sh:minCount 2 ;
+	] .
