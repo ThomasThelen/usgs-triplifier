@@ -40,6 +40,50 @@ class Config(BaseSettings):
     # defaults to the time of the run
     release_date: str | None = Field(default=None, alias="RELEASE_DATE")
 
+    # SPARQL endpoint the crosswalk links are harvested from (P590 backlinks)
+    wikidata_endpoint: str = Field(
+        default="https://query.wikidata.org/sparql", alias="WIKIDATA_ENDPOINT"
+    )
+
+    # GeoNames US dump for the name-and-distance alignment
+    geonames_url: str = Field(
+        default="https://download.geonames.org/export/dump/US.zip",
+        alias="GEONAMES_URL",
+    )
+
+    # Furthest a same-named GeoNames candidate may sit from the GNIS
+    # coordinates and still be accepted as the same feature
+    geonames_max_distance_m: float = Field(
+        default=10_000, alias="GEONAMES_MAX_DISTANCE_M"
+    )
+
+    # Tighter threshold for point-like classes (populated places, springs,
+    # buildings), whose coordinates disagree far less between gazetteers
+    # than extended features like streams and ridges
+    geonames_point_max_distance_m: float = Field(
+        default=5_000, alias="GEONAMES_POINT_MAX_DISTANCE_M"
+    )
+
+    # A winning candidate must be unambiguous: the runner-up must be this
+    # many times farther away, or trail by the minimum gap below, or the
+    # feature is left unlinked
+    geonames_ambiguity_ratio: float = Field(
+        default=2.0, alias="GEONAMES_AMBIGUITY_RATIO"
+    )
+    geonames_ambiguity_min_gap_m: float = Field(
+        default=2_000, alias="GEONAMES_AMBIGUITY_MIN_GAP_M"
+    )
+
+    # Distinct subjects sampled per generated dump for the SHACL gate
+    shacl_sample_subjects: int = Field(default=2_000, alias="SHACL_SAMPLE_SUBJECTS")
+
+    # Census national gazetteer files (the ANSI code column is the GNIS id)
+    census_gazetteer_base: str = Field(
+        default="https://www2.census.gov/geo/docs/maps-data/data/gazetteer",
+        alias="CENSUS_GAZETTEER_BASE",
+    )
+    census_gazetteer_year: int = Field(default=2025, alias="CENSUS_GAZETTEER_YEAR")
+
     # Static prefixes that don't depend on config values
     _static_prefixes: ClassVar[dict[str, Namespace]] = {
         "rdf": Namespace("http://www.w3.org/1999/02/22-rdf-syntax-ns#"),

@@ -1,10 +1,20 @@
+import gzip
 import zipfile
 
 import geopandas as gpd
 import pytest
+from rdflib import Graph
 from shapely.geometry import Point
 
 from usgs_triplifier.config import config
+
+
+def parse_nt_gz(path):
+    """Parse a gzipped N-Triples output file into a Graph for assertions."""
+    graph = Graph()
+    with gzip.open(path, "rt", encoding="utf-8") as f:
+        graph.parse(f, format="nt")
+    return graph
 
 
 @pytest.fixture()

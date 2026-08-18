@@ -118,7 +118,10 @@ class GraphDBAdapter:
     def copy_triples(self):
         """Copies the triples that are generated to GRAPHDB_IMPORT_DIRECTORY"""
         self.graphdb_import_path.mkdir(parents=True, exist_ok=True)
-        file_paths = list(self.rdf_output_path.glob("*.ttl"))
+        # The gzipped N-Triples dumps plus the small Turtle metadata file
+        file_paths = list(self.rdf_output_path.glob("*.nt.gz")) + list(
+            self.rdf_output_path.glob("*.ttl")
+        )
 
         if not file_paths:
             self.logger.warning("No triple files found to copy")
@@ -140,7 +143,9 @@ class GraphDBAdapter:
         """
         Uploads RDF files to GraphDB.
         """
-        file_paths = list(self.graphdb_import_path.glob("*.ttl"))
+        file_paths = list(self.graphdb_import_path.glob("*.nt.gz")) + list(
+            self.graphdb_import_path.glob("*.ttl")
+        )
 
         if not file_paths:
             self.logger.warning(

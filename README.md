@@ -16,6 +16,73 @@ The USGS hosts several data products that contain information about places: thei
 2. A graph database service for hosting the data
 3. An ETL process for fetching the data from USGS, transforming it into RDF, and loading it into the graph database
 
+## Releases and the archive
+
+Every ETL run publishes a release into the archive directory
+(`ARCHIVE_OUTPUT_DIRECTORY`):
+
+| File | What it is |
+|---|---|
+| `gnis-ld-<YYMMDD>.nt.gz` | The full release dump (gzipped N-Triples) |
+| `gnis-ld-<YYMMDD>.meta.json` | Sidecar with the display fields the website reads: `id`, `published`, `triples`, `size` |
+| `gnis-ld-historical-<YYMMDD>.nt.gz` (+ sidecar) | Companion dump of records retained for features dropped upstream; written only when something was dropped |
+
+Dropping these files into the archive volume is the entire publishing
+handoff: the website scans the directory and derives its downloads page,
+`releases.json` manifest, and VoID release records from the filenames and
+sidecars. Release IDs are the `YYMMDD` build date; set
+`RELEASE_DATE=YYYY-MM-DD` to override the date for a re-run.
+
+Two behaviors to know about:
+
+- **Retention.** Feature URIs are permanent. Before each release the
+  pipeline diffs the new dump against the previous release: any record that
+  vanished upstream is carried forward, typed `usgs:HistoricalFeature`, and
+  stamped `gnis:lastAppearedIn <.../gnis/release/ID>`, so its URI keeps
+  resolving. A feature that reappears upstream leaves the historical set.
+- **Full replacement.** Each load clears the repository and reloads it, so
+  stale values never accumulate. The dataset metadata re-describes every
+  archived release on every build, which is how the release lineage stays
+  queryable across reloads.
+
+## Backfilling archived vintages
+
+USGS keeps its pre-GPKG file archive (through 2021-08-25) under
+`prd-tnm/StagedProducts/GeographicNames/Archive/`. To publish one of those
+vintages as a release:
+
+1. Stage the archived zips in `GNIS_INPUT_DIRECTORY`:
+   `MainDomestic/NationalFile.zip`, `TopicalGazetteers/AllNames.zip`,
+   `TopicalGazetteers/Feature_Description_History.zip`, and
+   `TopicalGazetteers/GOVT_UNITS.zip`.
+2. Run the ETL with `ARCHIVE_MODE=true` and `RELEASE_DATE=<vintage date>`
+   (e.g. `2021-08-25`; required in archive mode).
+
+In archive mode the pipeline reads the old pipe-delimited formats
+(uppercase headers, two-letter state codes, `Y`/`N` official-name flags),
+emits `gnis:elevation` (which only the old vintages carry), and still
+harvests the crosswalks — they join on stable GNIS IDs, so they hold for
+any vintage, though the links reflect the external sources as of the
+harvest, not the release date. The download step is skipped (inputs are the
+staged files) and the run stops after exporting to the archive: **the live
+GraphDB repository is never touched by a backfill.** When backfilling
+several vintages, run them oldest-first so retention diffs each release
+against the correct predecessor.
+
+## Configuration
+
+The pipeline is configured entirely through environment variables; the
+most important ones:
+
+| Variable | Purpose |
+|---|---|
+| `LOD_BASE` / `GEO_BASE` | Base URIs minted into every triple — must match the public host before the first real run |
+| `GNIS_INPUT_DIRECTORY` / `RDF_OUTPUT_DIRECTORY` | Where source zips are read and generated `.nt.gz` files are written |
+| `ARCHIVE_OUTPUT_DIRECTORY` | Where release dumps are published (the website's archive volume) |
+| `SITE_BASE` | Public website base used for download URLs in the dataset metadata |
+| `DOWNLOAD_DATA` | Set `false` to reuse already-downloaded inputs |
+| `ARCHIVE_MODE` / `RELEASE_DATE` | Backfill an archived vintage (see above) |
+
 ## Development
 
 The general idea is that any changes to the generation of triples happens in the `usgs_triplifier` package. After each change, increment the version. The deployment system should then have its `usgs_triplifier` version changed to the new one, any refactorings, and re-deployed.
