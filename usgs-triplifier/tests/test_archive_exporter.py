@@ -7,20 +7,23 @@ from rdflib import Graph
 
 from usgs_triplifier.config import config
 from usgs_triplifier.lib.archive_exporter import _format_size, export_release
-from usgs_triplifier.lib.dataset_metadata import METADATA_BASENAME
+from usgs_triplifier.lib.dataset_metadata import RETAINED_BASENAME
 
 BUILD_TIME = datetime(2026, 8, 10, 12, 30, tzinfo=timezone.utc)
 
-FEATURES_TTL = """
-@prefix gnis: <http://gnis-ld.org/lod/gnis/ontology/> .
-<http://gnis-ld.org/lod/gnis/feature/1> gnis:featureId "1" ;
-    gnis:county "Example" .
-"""
+FEATURES_NT = [
+    '<http://gnis-ld.org/lod/gnis/feature/1> <http://gnis-ld.org/lod/gnis/ontology/featureId> "1" .',
+    '<http://gnis-ld.org/lod/gnis/feature/1> <http://gnis-ld.org/lod/gnis/ontology/county> "Example" .',
+]
 
-NAMES_TTL = """
-@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-<http://gnis-ld.org/lod/gnis/feature/1> rdfs:label "Example" .
-"""
+NAMES_NT = [
+    '<http://gnis-ld.org/lod/gnis/feature/1> <http://www.w3.org/2000/01/rdf-schema#label> "Example" .',
+]
+
+
+def _write_nt_gz(path, lines):
+    with gzip.open(path, "wt", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
 
 
 @pytest.fixture()
@@ -32,10 +35,10 @@ def archive_dir(tmp_path, monkeypatch):
 
 def test_export_concatenates_outputs_as_ntriples(data_dirs, archive_dir):
     _, output_dir = data_dirs
-    (output_dir / "features.ttl").write_text(FEATURES_TTL)
-    (output_dir / "names.ttl").write_text(NAMES_TTL)
-    # The metadata description is not part of the data dump
-    (output_dir / METADATA_BASENAME).write_text(NAMES_TTL)
+    _write_nt_gz(output_dir / "features.nt.gz", FEATURES_NT)
+    _write_nt_gz(output_dir / "names.nt.gz", NAMES_NT)
+    # Retained records are published separately, never in the main dump
+    _write_nt_gz(output_dir / RETAINED_BASENAME, NAMES_NT)
 
     dump = export_release(BUILD_TIME)
 
@@ -48,7 +51,7 @@ def test_export_concatenates_outputs_as_ntriples(data_dirs, archive_dir):
 
 def test_export_writes_sidecar_for_website_scanner(data_dirs, archive_dir):
     _, output_dir = data_dirs
-    (output_dir / "features.ttl").write_text(FEATURES_TTL)
+    _write_nt_gz(output_dir / "features.nt.gz", FEATURES_NT)
 
     dump = export_release(BUILD_TIME)
 

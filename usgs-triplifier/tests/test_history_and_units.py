@@ -1,7 +1,7 @@
-from rdflib import Graph, Literal
+from rdflib import Literal
 from rdflib.namespace import OWL, RDF
 
-from conftest import make_gpkg_zip
+from conftest import make_gpkg_zip, parse_nt_gz
 from usgs_triplifier.config import config
 from usgs_triplifier.lib.gnis.history_triplifier import HistoryTriplifier
 from usgs_triplifier.lib.gnis.units_triplifier import UnitsTriplifier
@@ -26,8 +26,7 @@ def test_history_end_to_end(data_dirs):
 
     HistoryTriplifier()
 
-    graph = Graph()
-    graph.parse(output_dir / "history.ttl", format="turtle")
+    graph = parse_nt_gz(output_dir / "history.nt.gz")
     gnisf = config.prefix_list["gnisf"]
     gnis = config.prefix_list["gnis"]
 
@@ -87,8 +86,7 @@ def test_units_end_to_end(data_dirs):
 
     UnitsTriplifier()
 
-    graph = Graph()
-    graph.parse(output_dir / "units.ttl", format="turtle")
+    graph = parse_nt_gz(output_dir / "units.nt.gz")
     gnisf = config.prefix_list["gnisf"]
     gnis = config.prefix_list["gnis"]
     gnisf_alias = config.prefix_list["gnisf-alias"]

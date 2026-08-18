@@ -29,7 +29,8 @@ MAX_CLOSURE_PASSES = 5
 
 def build_retained(build_time: datetime | None = None) -> Path | None:
     """
-    Write retained-features.ttl for every record dropped from this release.
+    Write the retained-features dump for every record dropped from this
+    release.
 
     Diffs the just-exported release dump against the newest previous release
     dump and the newest previous historical dump in the archive: any subject
@@ -72,7 +73,7 @@ def build_retained(build_time: datetime | None = None) -> Path | None:
     # Always (re)write the file so a stale one from a previous run is never
     # loaded, but only report a path when there is something to publish.
     output_path = config.output_directory / RETAINED_BASENAME
-    with open(output_path, "w", encoding="utf-8") as out:
+    with gzip.open(output_path, "wt", encoding="utf-8") as out:
         for line in lines:
             out.write(line + "\n")
     return output_path if lines else None

@@ -1,7 +1,7 @@
 import pytest
 from rdflib import BNode, Graph, Literal, URIRef
 
-from conftest import make_gpkg_zip
+from conftest import make_gpkg_zip, parse_nt_gz
 from usgs_triplifier.config import config
 from usgs_triplifier.lib.gnis.triplifier import (
     FieldDescriptor,
@@ -148,11 +148,10 @@ def test_triplify_all_end_to_end(data_dirs):
 
     graph = triplify_all(_test_config(), "TestTable", "test-output")
 
-    output_path = output_dir / "test-output.ttl"
+    output_path = output_dir / "test-output.nt.gz"
     assert output_path.exists()
 
-    parsed = Graph()
-    parsed.parse(output_path, format="turtle")
+    parsed = parse_nt_gz(output_path)
     gnisf = config.prefix_list["gnisf"]
     rdfs_label = config.prefix_list["rdfs"]["label"]
     assert (gnisf["1"], rdfs_label, Literal("Alpha", lang="en")) in parsed

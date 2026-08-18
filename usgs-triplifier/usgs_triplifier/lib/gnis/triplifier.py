@@ -2,9 +2,10 @@
 GNIS Triplifier - Converts GNIS data to RDF triples.
 
 This module extracts GNIS data from GeoPackage files (inside zip archives)
-and converts them to RDF Turtle format.
+and streams the triples out as gzipped N-Triples.
 """
 
+import gzip
 import logging
 import re
 import tempfile
@@ -15,11 +16,38 @@ from typing import Any, Callable
 
 import geopandas as gpd
 from rdflib import BNode, Graph, Literal, URIRef
+from rdflib.plugins.serializers.nt import _nt_row
 from tqdm import tqdm
 
 from ...config import config
 
 logger = logging.getLogger(__name__)
+
+
+class NTStreamSink:
+    """
+    Graph-shaped triple sink that streams each triple as an N-Triples line.
+
+    The full datasets are far too large to hold as rdflib Graphs (the
+    indexes cost well over a kilobyte per triple), and each row's triples
+    are independent, so they are written the moment they are produced and
+    peak memory stays flat. Duplicate triples are not collapsed here; the
+    ETL removes them in a dedicated pass over the finished files.
+    """
+
+    def __init__(self, out=None):
+        self._out = out
+        self._count = 0
+
+    def add(self, triple) -> None:
+        self._out.write(_nt_row(triple))
+        self._count += 1
+
+    def bind(self, prefix, namespace) -> None:
+        """No-op: N-Triples has no prefixes."""
+
+    def __len__(self) -> int:
+        return self._count
 
 
 @dataclass
@@ -75,14 +103,14 @@ def triplify_all(
     triplifier_config: TriplifierConfig,
     table_name: str,
     output_basename: str = "output",
-) -> Graph:
+) -> NTStreamSink:
     """
     Process all GPKG zip files in the input directory.
 
     :param triplifier_config: Triplifier configuration.
     :param table_name: Name of the table to read from each GPKG file.
     :param output_basename: Basename for output file.
-    :return: Graph holding the combined triples.
+    :return: The sink the triples were streamed through.
     """
     zip_files = get_gpkg_zip_files()
 
@@ -91,91 +119,81 @@ def triplify_all(
 
     print(f"Found {len(zip_files)} GPKG zip files")
 
-    # Create a single triplifier for combined output
     output_dir = config.output_directory
     output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"{output_basename}.nt.gz"
 
-    # Initialize RDF graph with prefixes
-    graph = Graph()
-    for prefix, ns in config.prefix_list.items():
-        graph.bind(prefix, ns)
+    with gzip.open(output_path, "wt", encoding="utf-8") as out:
+        sink = NTStreamSink(out)
 
-    # Process each zip file
-    for zip_path in zip_files:
-        logger.info(f"Processing {zip_path.name}")
+        # Process each zip file
+        for zip_path in zip_files:
+            logger.info(f"Processing {zip_path.name}")
 
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            gpkg_files = [f for f in zf.namelist() if f.endswith(".gpkg")]
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                gpkg_files = [f for f in zf.namelist() if f.endswith(".gpkg")]
 
-            if not gpkg_files:
-                logger.debug("No GPKG file found, skipping")
-                continue
+                if not gpkg_files:
+                    logger.debug("No GPKG file found, skipping")
+                    continue
 
-            with tempfile.TemporaryDirectory() as tmpdir:
-                for gpkg_file in gpkg_files:
-                    zf.extract(gpkg_file, tmpdir)
-                    gpkg_path = Path(tmpdir) / gpkg_file
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    for gpkg_file in gpkg_files:
+                        zf.extract(gpkg_file, tmpdir)
+                        gpkg_path = Path(tmpdir) / gpkg_file
 
-                    logger.debug(f"Reading table {table_name}")
-                    gdf = gpd.read_file(gpkg_path, layer=table_name, engine="pyogrio")
+                        logger.debug(f"Reading table {table_name}")
+                        gdf = gpd.read_file(
+                            gpkg_path, layer=table_name, engine="pyogrio"
+                        )
 
-                    pbar = tqdm(
-                        total=len(gdf),
-                        unit="rows",
-                        desc="Processing",
-                        bar_format="{l_bar}{bar:40}{r_bar}",
-                    )
+                        pbar = tqdm(
+                            total=len(gdf),
+                            unit="rows",
+                            desc="Processing",
+                            bar_format="{l_bar}{bar:40}{r_bar}",
+                        )
 
-                    for _, row in gdf.iterrows():
-                        row_dict = row.to_dict()
-                        subject_iri = triplifier_config.subject(row_dict, graph)
-
-                        if not subject_iri:
+                        for row in gdf.itertuples(index=False):
+                            _process_row(row._asdict(), triplifier_config, sink)
                             pbar.update(1)
-                            continue
 
-                        subject = _resolve_iri(subject_iri)
+                        pbar.close()
 
-                        for field_name, descriptor in triplifier_config.fields.items():
-                            value = row_dict.get(field_name)
-
-                            if value is None or (
-                                isinstance(value, float) and value != value
-                            ):
-                                value = ""
-                            else:
-                                value = (
-                                    str(value) if not isinstance(value, str) else value
-                                )
-
-                            if callable(descriptor) and not isinstance(
-                                descriptor, FieldDescriptor
-                            ):
-                                pairs = descriptor(value, row_dict, graph)
-                                if pairs:
-                                    _add_pairs(graph, subject, pairs)
-                            elif isinstance(descriptor, FieldDescriptor):
-                                if not value:
-                                    if descriptor.optional:
-                                        continue
-                                    raise ValueError(
-                                        f'Missing value for column "{field_name}"'
-                                    )
-                                if descriptor.predicate and descriptor.object:
-                                    predicate = _resolve_iri(descriptor.predicate)
-                                    obj = descriptor.object(value, row_dict, graph)
-                                    if obj:
-                                        _add_triple(graph, subject, predicate, obj)
-
-                        pbar.update(1)
-
-                    pbar.close()
-
-    # Write combined output
-    output_path = output_dir / f"{output_basename}.ttl"
-    graph.serialize(destination=str(output_path), format="turtle")
     logger.info(f"Output written to {output_path}")
-    return graph
+    return sink
+
+
+def _process_row(row_dict: dict, triplifier_config: TriplifierConfig, sink) -> None:
+    """Emit the triples for one table row into the sink."""
+    subject_iri = triplifier_config.subject(row_dict, sink)
+    if not subject_iri:
+        return
+
+    subject = _resolve_iri(subject_iri)
+
+    for field_name, descriptor in triplifier_config.fields.items():
+        value = row_dict.get(field_name)
+
+        if value is None or (isinstance(value, float) and value != value):
+            value = ""
+        else:
+            value = str(value) if not isinstance(value, str) else value
+
+        if callable(descriptor) and not isinstance(descriptor, FieldDescriptor):
+            pairs = descriptor(value, row_dict, sink)
+            if pairs:
+                _add_pairs(sink, subject, pairs)
+        elif isinstance(descriptor, FieldDescriptor):
+            if not value:
+                if descriptor.optional:
+                    continue
+                raise ValueError(f'Missing value for column "{field_name}"')
+            if descriptor.predicate and descriptor.object:
+                predicate = _resolve_iri(descriptor.predicate)
+                obj = descriptor.object(value, row_dict, sink)
+                if obj:
+                    _add_triple(sink, subject, predicate, obj)
 
 
 def _resolve_iri(iri_str: str) -> URIRef:

@@ -1,5 +1,6 @@
 from rdflib import Graph, Literal
 
+from .text_triplifier import triplify_text_files
 from .triplifier import (
     triplify_all,
     TriplifierConfig,
@@ -38,7 +39,14 @@ class HistoryTriplifier:
             fields=field_mappings,
         )
 
-        triplify_all(triples_mapping, "Gaz_Features", "history")
+        if config.archive_mode:
+            # Archived vintages ship descriptions/histories as the
+            # Feature_Description_History text dump, not a GPKG table
+            triplify_text_files(
+                triples_mapping, "Feature_Description_History*.zip", "history"
+            )
+        else:
+            triplify_all(triples_mapping, "Gaz_Features", "history")
 
     @staticmethod
     def get_subject(row: dict, graph: Graph) -> str | None:

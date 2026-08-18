@@ -1,10 +1,13 @@
+import gzip
 from datetime import datetime
 
 from rdflib import Graph, Literal, URIRef
 from rdflib.namespace import OWL, XSD
 
+from .text_triplifier import triplify_text_files
 from .triplifier import (
     triplify_all,
+    NTStreamSink,
     TriplifierConfig,
     FieldDescriptor,
     clean,
@@ -20,6 +23,74 @@ GNIS_CLASS_MAPPINGS = {
     "Oilfield": "OilField",
     "Civil": "CivilGovernment",
     "Pillar": "Rock",
+}
+
+# The archived NationalFile vintages carry STATE_ALPHA codes where the modern
+# GPKG carries full state names; feature-alias and gnis:state URIs are built
+# from the full names, so backfills must expand the codes to the exact
+# spellings the current releases use (e.g. gnisf-alias:United_States_Virgin_Islands).
+ARCHIVE_STATE_NAMES = {
+    "AL": "Alabama",
+    "AK": "Alaska",
+    "AZ": "Arizona",
+    "AR": "Arkansas",
+    "CA": "California",
+    "CO": "Colorado",
+    "CT": "Connecticut",
+    "DE": "Delaware",
+    "DC": "District of Columbia",
+    "FL": "Florida",
+    "GA": "Georgia",
+    "HI": "Hawaii",
+    "ID": "Idaho",
+    "IL": "Illinois",
+    "IN": "Indiana",
+    "IA": "Iowa",
+    "KS": "Kansas",
+    "KY": "Kentucky",
+    "LA": "Louisiana",
+    "ME": "Maine",
+    "MD": "Maryland",
+    "MA": "Massachusetts",
+    "MI": "Michigan",
+    "MN": "Minnesota",
+    "MS": "Mississippi",
+    "MO": "Missouri",
+    "MT": "Montana",
+    "NE": "Nebraska",
+    "NV": "Nevada",
+    "NH": "New Hampshire",
+    "NJ": "New Jersey",
+    "NM": "New Mexico",
+    "NY": "New York",
+    "NC": "North Carolina",
+    "ND": "North Dakota",
+    "OH": "Ohio",
+    "OK": "Oklahoma",
+    "OR": "Oregon",
+    "PA": "Pennsylvania",
+    "RI": "Rhode Island",
+    "SC": "South Carolina",
+    "SD": "South Dakota",
+    "TN": "Tennessee",
+    "TX": "Texas",
+    "UT": "Utah",
+    "VT": "Vermont",
+    "VA": "Virginia",
+    "WA": "Washington",
+    "WV": "West Virginia",
+    "WI": "Wisconsin",
+    "WY": "Wyoming",
+    "PR": "Puerto Rico",
+    "GU": "Guam",
+    "AS": "American Samoa",
+    "VI": "United States Virgin Islands",
+    "MP": "Northern Mariana Islands",
+    "UM": "U.S. Minor Outlying Islands",
+    # Compact-of-free-association states, present only in the old vintages
+    "FM": "Federated States of Micronesia",
+    "MH": "Marshall Islands",
+    "PW": "Palau",
 }
 
 # Track feature aliases for disambiguation
@@ -85,7 +156,12 @@ class FeaturesTriplifier:
             subject=self.get_subject,
             fields=field_mappings,
         )
-        triplify_all(triples_mapping, "DomesticNames", "features")
+        if config.archive_mode:
+            # The archived vintages predate the GPKG format: features come
+            # from the pipe-delimited NationalFile dump instead.
+            triplify_text_files(triples_mapping, "NationalFile*.zip", "features")
+        else:
+            triplify_all(triples_mapping, "DomesticNames", "features")
         self._on_complete(geoms_file)
 
     def get_subject(self, row: dict, graph: Graph) -> str | None:
@@ -97,6 +173,13 @@ class FeaturesTriplifier:
         :return: Subject IRI string or None if invalid.
         """
         feature_id = normalize_feature_id(row.get("feature_id", ""))
+
+        # NationalFile rows carry only the state code; expand it here (rows
+        # are shared with the field processors, so gnis:state and the alias
+        # both see the full name)
+        if not row.get("state_name") and row.get("state_alpha"):
+            alpha = str(row["state_alpha"])
+            row["state_name"] = ARCHIVE_STATE_NAMES.get(alpha, alpha)
 
         # Get and normalize class name
         feature_class = str(row.get("feature_class", "")).replace(" ", "")
@@ -193,7 +276,9 @@ class FeaturesTriplifier:
             :param graph: RDF graph to add geometry triples to.
             :return: Dictionary of predicate-object pairs or None if no geometry.
             """
-            if not value or value == "0.0":
+            # Unknown coordinates: "0.0" in the GPKG, "0" in the archived
+            # text vintages
+            if not value or value in ("0.0", "0"):
                 return None
 
             lat = value
@@ -300,33 +385,28 @@ class FeaturesTriplifier:
         if geoms_file:
             geoms_file.close()
 
-        # Create aliases graph
-        aliases_graph = Graph()
-        for prefix, ns in config.prefix_list.items():
-            aliases_graph.bind(prefix, ns)
-
         gnisf = config.prefix_list["gnisf"]
         gnisf_alias = config.prefix_list["gnisf-alias"]
         gnis = config.prefix_list["gnis"]
 
-        # Process each alias
-        for alias, features in feature_aliases.items():
-            if alias:
+        # Stream the aliases out; millions of them accumulate over a full run
+        aliases_path = config.output_directory / "feature-aliases.nt.gz"
+        with gzip.open(aliases_path, "wt", encoding="utf-8") as out:
+            sink = NTStreamSink(out)
+            for alias, features in feature_aliases.items():
+                if not alias:
+                    continue
                 alias_uri = gnisf_alias[alias]
 
                 if len(features) == 1:
                     # Unique - add owl:sameAs
-                    aliases_graph.add((alias_uri, OWL.sameAs, gnisf[features[0]]))
+                    sink.add((alias_uri, OWL.sameAs, gnisf[features[0]]))
                 else:
                     # Ambiguous - add disambiguation links
                     for feature_id in features:
-                        aliases_graph.add(
+                        sink.add(
                             (alias_uri, gnis["disambiguatesTo"], gnisf[feature_id])
                         )
-
-        # Write aliases file
-        aliases_path = config.output_directory / "feature-aliases.ttl"
-        aliases_graph.serialize(destination=str(aliases_path), format="turtle")
         print(f"Aliases written to {aliases_path}")
 
 

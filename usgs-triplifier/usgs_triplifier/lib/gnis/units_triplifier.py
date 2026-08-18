@@ -1,6 +1,7 @@
 from rdflib import Graph, Literal, URIRef
 from rdflib.namespace import OWL
 
+from .text_triplifier import triplify_text_files
 from .triplifier import (
     triplify_all,
     TriplifierConfig,
@@ -67,7 +68,12 @@ class UnitsTriplifier:
             subject=self.get_subject,
             fields=field_mappings,
         )
-        triplify_all(triples_mapping, "GovernmentUnits", "units")
+        if config.archive_mode:
+            # Archived vintages ship government units as the GOVT_UNITS text
+            # dump, not a GPKG table
+            triplify_text_files(triples_mapping, "GOVT_UNITS*.zip", "units")
+        else:
+            triplify_all(triples_mapping, "GovernmentUnits", "units")
 
     def get_subject(self, row: dict, graph: Graph) -> str | None:
         """

@@ -1,7 +1,7 @@
-from rdflib import BNode, Graph, Literal, URIRef
+from rdflib import Graph, Literal, URIRef
 from rdflib.namespace import OWL, XSD
 
-from conftest import make_gpkg_zip
+from conftest import make_gpkg_zip, parse_nt_gz
 from usgs_triplifier.config import config
 from usgs_triplifier.lib.gnis import features_triplifier
 from usgs_triplifier.lib.gnis.features_triplifier import FeaturesTriplifier
@@ -56,14 +56,11 @@ def _rows():
 def test_features_end_to_end(data_dirs, monkeypatch):
     input_dir, output_dir = data_dirs
     monkeypatch.setattr(features_triplifier, "feature_aliases", {})
-    # Archive mode: historical dumps are the only sources carrying elevation
-    monkeypatch.setattr(config, "archive_mode", True)
     make_gpkg_zip(input_dir, "Gazetteer_National_GPKG.zip", {"DomesticNames": _rows()})
 
     FeaturesTriplifier()
 
-    graph = Graph()
-    graph.parse(output_dir / "features.ttl", format="turtle")
+    graph = parse_nt_gz(output_dir / "features.nt.gz")
 
     gnisf = config.prefix_list["gnisf"]
     gnis = config.prefix_list["gnis"]
@@ -92,16 +89,6 @@ def test_features_end_to_end(data_dirs, monkeypatch):
     assert len(wkt) == 1 and "POINT(-117.2 34.5)" in str(wkt[0])
     assert "nan" not in graph.serialize(format="turtle")
 
-    # Elevation becomes a blank node with QUDT properties; zero/NaN skipped
-    elev_nodes = list(graph.objects(gnisf["1"], gnis["elevation"]))
-    assert len(elev_nodes) == 1 and isinstance(elev_nodes[0], BNode)
-    qudt = config.prefix_list["qudt"]
-    assert list(graph.objects(elev_nodes[0], qudt["numericValue"])) == [
-        Literal("5280.0", datatype=XSD.double)
-    ]
-    assert list(graph.objects(gnisf["2"], gnis["elevation"])) == []
-    assert list(graph.objects(gnisf["3"], gnis["elevation"])) == []
-
     # Dates: both formats normalize, unparsable passes through
     assert list(graph.objects(gnisf["1"], gnis["dateFeatureCreated"])) == [
         Literal("1998-01-02", datatype=XSD.date)
@@ -121,8 +108,7 @@ def test_features_end_to_end(data_dirs, monkeypatch):
     )
 
     # Aliases: shared alias disambiguates, unique alias is sameAs
-    aliases = Graph()
-    aliases.parse(output_dir / "feature-aliases.ttl", format="turtle")
+    aliases = parse_nt_gz(output_dir / "feature-aliases.nt.gz")
     gnisf_alias = config.prefix_list["gnisf-alias"]
     shared = gnisf_alias["California.Alameda.Lake.Blue_Lake"]
     assert set(aliases.objects(shared, gnis["disambiguatesTo"])) == {
@@ -181,7 +167,6 @@ def test_current_sources_omit_elevation(data_dirs, monkeypatch):
 
     FeaturesTriplifier()
 
-    graph = Graph()
-    graph.parse(output_dir / "features.ttl", format="turtle")
+    graph = parse_nt_gz(output_dir / "features.nt.gz")
     gnis = config.prefix_list["gnis"]
     assert list(graph.subject_objects(gnis["elevation"])) == []

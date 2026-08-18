@@ -4,18 +4,16 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from rdflib import Graph
-
 from ..config import config
-from .dataset_metadata import METADATA_BASENAME, RETAINED_BASENAME, build_id_for
+from .dataset_metadata import RETAINED_BASENAME, build_id_for
 
 
 def export_release(build_time: datetime | None = None) -> Path:
     """
     Publish the build as a release dump in the archive directory.
 
-    Concatenates every generated Turtle file into a single gzipped N-Triples
-    dump named gnis-ld-<yymmdd>.nt.gz, with a <name>.meta.json sidecar
+    Concatenates the generated N-Triples files into a single gzipped dump
+    named gnis-ld-<yymmdd>.nt.gz, with a <name>.meta.json sidecar
     carrying the display fields (id, published, triples, size) the website's
     archive scanner reads. Dropping these two files into the archive volume
     is the entire release-publishing handoff: the website derives its
@@ -37,15 +35,15 @@ def export_release(build_time: datetime | None = None) -> Path:
 
     n_triples = 0
     with gzip.open(dump_path, "wt", encoding="utf-8") as out:
-        # One file at a time keeps peak memory at a single dataset's graph,
-        # the same bound as the triplify step itself.
-        for ttl_path in sorted(config.output_directory.glob("*.ttl")):
-            if ttl_path.name in (METADATA_BASENAME, RETAINED_BASENAME):
+        # The generated files are already deduplicated N-Triples, so the
+        # export is a pure streaming concatenation.
+        for nt_path in sorted(config.output_directory.glob("*.nt.gz")):
+            if nt_path.name == RETAINED_BASENAME:
                 continue
-            graph = Graph()
-            graph.parse(ttl_path, format="turtle")
-            out.write(graph.serialize(format="nt"))
-            n_triples += len(graph)
+            with gzip.open(nt_path, "rt", encoding="utf-8") as f:
+                for line in f:
+                    out.write(line)
+                    n_triples += 1
 
     _write_sidecar(dump_path, build_time, n_triples)
     return dump_path
@@ -55,10 +53,10 @@ def export_historical(build_time: datetime | None = None) -> Path:
     """
     Publish the retained records as this release's historical companion dump.
 
-    Copies retained-features.ttl (already N-Triples lines, written by
-    retention.build_retained) into the archive as
-    gnis-ld-historical-<yymmdd>.nt.gz with the same sidecar contract as the
-    main dump, so the website can pair the two by their shared YYMMDD id.
+    Copies the retained-features dump (written by retention.build_retained)
+    into the archive as gnis-ld-historical-<yymmdd>.nt.gz with the same
+    sidecar contract as the main dump, so the website can pair the two by
+    their shared YYMMDD id.
 
     :param build_time: Timestamp identifying the build; defaults to now (UTC).
     :return: Path of the written dump.
@@ -72,15 +70,11 @@ def export_historical(build_time: datetime | None = None) -> Path:
 
     retained_path = config.output_directory / RETAINED_BASENAME
     n_triples = 0
-    with open(retained_path, encoding="utf-8") as f:
+    with gzip.open(retained_path, "rt", encoding="utf-8") as f:
         for line in f:
             if line.strip():
                 n_triples += 1
-    with (
-        open(retained_path, "rb") as f_in,
-        gzip.open(dump_path, "wb") as f_out,
-    ):
-        shutil.copyfileobj(f_in, f_out)
+    shutil.copyfile(retained_path, dump_path)
 
     _write_sidecar(dump_path, build_time, n_triples)
     return dump_path

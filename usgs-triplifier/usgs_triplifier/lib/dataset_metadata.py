@@ -17,7 +17,7 @@ METADATA_BASENAME = "dataset-metadata.ttl"
 # Records carried forward from previous releases for features dropped
 # upstream (written by retention, loaded into GraphDB with the rest, and
 # published as the gnis-ld-historical-<yymmdd>.nt.gz companion dump)
-RETAINED_BASENAME = "retained-features.ttl"
+RETAINED_BASENAME = "retained-features.nt.gz"
 
 # The release-dump naming contract shared with the website's archive scanner
 R_MAIN_DUMP = re.compile(r"^gnis-ld-(\d{6})\.nt\.gz$")
@@ -127,18 +127,18 @@ def write_dataset_metadata(
         )
 
     # Files this build produced
-    for ttl_path in sorted(config.output_directory.glob("*.ttl")):
-        if ttl_path.name in (METADATA_BASENAME, RETAINED_BASENAME):
+    for nt_path in sorted(config.output_directory.glob("*.nt.gz")):
+        if nt_path.name == RETAINED_BASENAME:
             continue
-        distribution = URIRef(f"{release_uri}/{ttl_path.stem}")
+        distribution = URIRef(f"{release_uri}/{nt_path.name.replace('.nt.gz', '')}")
         graph.add((release_uri, DCAT.distribution, distribution))
         graph.add((distribution, RDF.type, DCAT.Distribution))
-        graph.add((distribution, DCTERMS.title, Literal(ttl_path.name)))
+        graph.add((distribution, DCTERMS.title, Literal(nt_path.name)))
         graph.add(
             (
                 distribution,
                 DCAT.byteSize,
-                Literal(ttl_path.stat().st_size, datatype=XSD.integer),
+                Literal(nt_path.stat().st_size, datatype=XSD.integer),
             )
         )
 

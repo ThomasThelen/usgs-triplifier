@@ -1,7 +1,7 @@
-from rdflib import Graph, Literal
+from rdflib import Literal
 from rdflib.namespace import RDFS, XSD
 
-from conftest import make_text_zip
+from conftest import make_text_zip, parse_nt_gz
 from usgs_triplifier.config import config
 from usgs_triplifier.lib.gnis.names_triplifier import NamesTriplifier
 from usgs_triplifier.lib.gnis.text_triplifier import triplify_text_files
@@ -26,8 +26,7 @@ def test_names_end_to_end(data_dirs):
 
     NamesTriplifier()
 
-    graph = Graph()
-    graph.parse(output_dir / "names.ttl", format="turtle")
+    graph = parse_nt_gz(output_dir / "names.nt.gz")
     gnisf = config.prefix_list["gnisf"]
     gnis = config.prefix_list["gnis"]
 
@@ -86,7 +85,7 @@ def test_triplify_text_files_file_filter(data_dirs):
         _names_config(), "*_Text.zip", "matched", file_filter="Sample"
     )
     assert len(matched) > 0
-    assert (output_dir / "matched.ttl").exists()
+    assert (output_dir / "matched.nt.gz").exists()
 
 
 def _names_config():

@@ -51,8 +51,8 @@ def _write_dump(archive_dir, name, lines):
 
 
 def _retained_lines():
-    text = (config.output_directory / RETAINED_BASENAME).read_text()
-    return [line for line in text.splitlines() if line.strip()]
+    with gzip.open(config.output_directory / RETAINED_BASENAME, "rt") as f:
+        return [line for line in f.read().splitlines() if line.strip()]
 
 
 def test_dropped_record_is_carried_with_closure_and_tombstone(data_dirs, archive_dir):

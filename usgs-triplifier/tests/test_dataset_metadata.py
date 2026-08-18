@@ -62,14 +62,14 @@ def test_release_records_sources_and_pipeline(data_dirs):
 
 def test_distributions_describe_output_files(data_dirs):
     _, output_dir = data_dirs
-    (output_dir / "features.ttl").write_text("# features")
-    (output_dir / "names.ttl").write_text("# names, longer content")
+    (output_dir / "features.nt.gz").write_text("# features")
+    (output_dir / "names.nt.gz").write_text("# names, longer content")
     graph = _write_and_parse(output_dir)
     release = URIRef(f"{config.lod_base}/gnis/release/{BUILD_ID}")
 
     distributions = list(graph.objects(release, DCAT.distribution))
     titles = {str(t) for d in distributions for t in graph.objects(d, DCTERMS.title)}
-    assert titles == {"features.ttl", "names.ttl"}
+    assert titles == {"features.nt.gz", "names.nt.gz"}
     # The metadata file does not describe itself
     assert METADATA_BASENAME not in titles
 

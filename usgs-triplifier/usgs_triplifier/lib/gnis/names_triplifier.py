@@ -45,8 +45,10 @@ class NamesTriplifier:
             subject=self.get_subject,
             fields=field_mappings,
         )
-        # Run triplifier on AllNames text zip file
-        triplify_text_files(triples_config, "AllNames*_Text.zip", "names")
+        # Run triplifier on the AllNames text zip: the modern topical zip, or
+        # the archived vintage (AllNames.zip) when backfilling
+        pattern = "AllNames*.zip" if config.archive_mode else "AllNames*_Text.zip"
+        triplify_text_files(triples_config, pattern, "names")
 
     @staticmethod
     def get_subject(row: dict, graph: Graph) -> str | None:
@@ -148,8 +150,9 @@ class NamesTriplifier:
         if isinstance(is_official, (int, float)):
             return int(is_official) == 1
         else:
-            # Text files use "Official" or "Variant"
-            return str(is_official).lower() == "official"
+            # Modern text files use "Official"/"Variant"; the archived
+            # vintages (through 2021) use "Y"/"N"
+            return str(is_official).lower() in ("official", "y")
 
 
 def main():
