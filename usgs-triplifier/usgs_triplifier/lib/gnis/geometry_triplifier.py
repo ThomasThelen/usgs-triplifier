@@ -7,7 +7,6 @@ from typing import ClassVar
 import pyogrio
 import pyogrio.raw
 import shapely
-from tqdm import tqdm
 
 from ...config import config
 from ...output_files import OutputFiles
@@ -68,12 +67,6 @@ class GeometryTriplifier:
         :param writer: Writer the geometry triples are added to.
         """
         total = pyogrio.read_info(gpkg_path, layer=self.LAYER)["features"]
-        progress = tqdm(
-            total=total,
-            unit="rows",
-            desc=gpkg_path.name,
-            bar_format="{l_bar}{bar:40}{r_bar}",
-        )
         for offset in range(0, total, self.BATCH_SIZE):
             _, _, wkb, (feature_ids,) = pyogrio.raw.read(
                 gpkg_path,
@@ -90,8 +83,6 @@ class GeometryTriplifier:
                     continue
                 wkt = shapely.to_wkt(geometry, rounding_precision=-1)
                 self._add_geometry(writer, FeatureIds.normalize(feature_id), wkt)
-            progress.update(len(feature_ids))
-        progress.close()
 
     @staticmethod
     def _add_geometry(writer: NTriplesWriter, feature_id: str, wkt: str) -> None:
