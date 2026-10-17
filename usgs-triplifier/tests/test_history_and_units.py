@@ -1,7 +1,7 @@
 from rdflib import Literal
 from rdflib.namespace import OWL, RDF
 
-from conftest import make_gpkg_zip, parse_nt_gz
+from conftest import make_text_zip, parse_nt_gz
 from usgs_triplifier.config import config
 from usgs_triplifier.lib.gnis.history_triplifier import HistoryTriplifier
 from usgs_triplifier.lib.gnis.units_triplifier import UnitsTriplifier
@@ -9,19 +9,15 @@ from usgs_triplifier.lib.gnis.units_triplifier import UnitsTriplifier
 
 def test_history_end_to_end(data_dirs):
     input_dir, output_dir = data_dirs
-    make_gpkg_zip(
+    make_text_zip(
         input_dir,
-        "Gazetteer_National_GPKG.zip",
-        {
-            "Gaz_Features": [
-                {
-                    "feature_id": "1",
-                    "description": "  A lake.  ",
-                    "history": "Named in 1901.",
-                },
-                {"feature_id": "2", "description": "   ", "history": None},
-            ]
-        },
+        "FeatureDescriptionHistory_National_Text.zip",
+        "Text/FeatureDescriptionHistory_National.txt",
+        [
+            "feature_id|description|history",
+            "1|  A lake.  |Named in 1901.",
+            "2|   |",
+        ],
     )
 
     HistoryTriplifier()
@@ -42,46 +38,17 @@ def test_history_end_to_end(data_dirs):
 
 def test_units_end_to_end(data_dirs):
     input_dir, output_dir = data_dirs
-    make_gpkg_zip(
+    make_text_zip(
         input_dir,
-        "Gazetteer_National_GPKG.zip",
-        {
-            "GovernmentUnits": [
-                {
-                    "feature_id": "10",
-                    "unit_type": "STATE",
-                    "state_alpha": "CA",
-                    "state_name": "California",
-                    "state_numeric": "06",
-                    "county_name": None,
-                    "county_numeric": None,
-                    "country_name": "United States",
-                    "feature_name": "California",
-                },
-                {
-                    "feature_id": "20",
-                    "unit_type": "COUNTY",
-                    "state_alpha": "CA",
-                    "state_name": "California",
-                    "state_numeric": "06",
-                    "county_name": "Alameda",
-                    "county_numeric": "1",
-                    "country_name": "United States",
-                    "feature_name": "Alameda County",
-                },
-                {
-                    "feature_id": "30",
-                    "unit_type": "COUNTRY",
-                    "state_alpha": None,
-                    "state_name": None,
-                    "state_numeric": None,
-                    "county_name": None,
-                    "county_numeric": None,
-                    "country_name": "United States",
-                    "feature_name": "United States",
-                },
-            ]
-        },
+        "GovernmentUnits_National_Text.zip",
+        "Text/GovernmentUnits_National.txt",
+        [
+            "feature_id|unit_type|county_numeric|county_name|state_numeric"
+            "|state_alpha|state_name|country_alpha|country_name|feature_name",
+            "10|STATE|||06|CA|California|US|United States|California",
+            "20|COUNTY|1|Alameda|06|CA|California|US|United States|Alameda County",
+            "30|COUNTRY||||||US|United States|United States",
+        ],
     )
 
     UnitsTriplifier()

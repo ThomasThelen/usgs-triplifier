@@ -1,10 +1,12 @@
 import gzip
 import zipfile
+from pathlib import Path
 
-import geopandas as gpd
+import numpy as np
+import pyogrio.raw
 import pytest
+import shapely
 from rdflib import Graph
-from shapely.geometry import Point
 
 from usgs_triplifier.config import config
 
@@ -31,20 +33,34 @@ def data_dirs(tmp_path, monkeypatch):
     return input_dir, output_dir
 
 
-def make_gpkg_zip(input_dir, zip_name, layers):
+def make_gpkg_zip(
+    input_dir: Path, zip_name: str, geometries: dict[int, shapely.Geometry | None]
+) -> Path:
     """
-    Build a zipped GeoPackage in ``input_dir``.
+    Builds a zipped GeoPackage in input_dir shaped like the USGS FullModel.
 
     :param input_dir: Directory the triplifiers read zips from.
     :param zip_name: Name of the zip file (must match *_GPKG.zip).
-    :param layers: Mapping of layer name -> list of row dicts.
+    :param geometries: Mapping of feature id to shapely geometry, or None
+        for a feature without one.
+    :return: Path to the zip file.
     """
     gpkg_path = input_dir / "data.gpkg"
-    for layer, rows in layers.items():
-        gdf = gpd.GeoDataFrame(
-            rows, geometry=[Point(0, 0)] * len(rows), crs="EPSG:4326"
-        )
-        gdf.to_file(gpkg_path, layer=layer, driver="GPKG")
+    feature_ids = np.array(list(geometries), dtype="int64")
+    wkb = np.array(
+        [None if g is None else shapely.to_wkb(g) for g in geometries.values()],
+        dtype=object,
+    )
+    pyogrio.raw.write(
+        gpkg_path,
+        geometry=wkb,
+        field_data=[feature_ids],
+        fields=["feature_id"],
+        layer="DomesticNames",
+        driver="GPKG",
+        geometry_type="MultiPoint Z",
+        crs="EPSG:4326",
+    )
     zip_path = input_dir / zip_name
     with zipfile.ZipFile(zip_path, "w") as zf:
         zf.write(gpkg_path, "data.gpkg")

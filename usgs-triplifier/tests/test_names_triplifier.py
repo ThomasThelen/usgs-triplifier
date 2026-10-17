@@ -56,17 +56,6 @@ def test_names_end_to_end(data_dirs):
     ]
 
 
-def test_triplify_text_files_without_zips_returns_empty_graph(data_dirs):
-    graph = triplify_text_files(_dummy_config(), "Nope_*_Text.zip", "nothing")
-    assert len(graph) == 0
-
-
-def _dummy_config():
-    from usgs_triplifier.lib.gnis.triplifier import TriplifierConfig
-
-    return TriplifierConfig(subject=lambda row, graph: None, fields={})
-
-
 def test_triplify_text_files_file_filter(data_dirs):
     input_dir, output_dir = data_dirs
     make_text_zip(

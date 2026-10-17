@@ -1,10 +1,3 @@
-"""
-Text file triplifier for GNIS pipe-delimited text files.
-
-Processes the AllNames_*.txt files extracted from USGS text dataset zips
-to extract citations, dates, and alternative names.
-"""
-
 import csv
 import gzip
 import tempfile
@@ -13,14 +6,7 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-from .triplifier import (
-    FieldDescriptor,
-    NTStreamSink,
-    TriplifierConfig,
-    _add_pairs,
-    _add_triple,
-    _resolve_iri,
-)
+from .triplifier import NTStreamSink, TriplifierConfig, _process_row
 from ...config import config
 
 
@@ -38,14 +24,14 @@ def triplify_text_files(
     :param output_basename: Basename for the output file.
     :param file_filter: Optional substring filter for text file names within zips.
     :return: The sink the triples were streamed through.
+    :raises FileNotFoundError: If no zip matches the pattern.
     """
     zip_files = sorted(config.input_directory.glob(file_pattern))
 
     if not zip_files:
-        print(
-            f"No text zip files found matching {file_pattern} in {config.input_directory}"
+        raise FileNotFoundError(
+            f"No text zip files matching {file_pattern} in {config.input_directory}"
         )
-        return NTStreamSink()
 
     print(f"Found {len(zip_files)} text zip files")
 
@@ -114,10 +100,8 @@ def _process_text_file(
         total_lines = sum(1 for _ in f) - 1  # Subtract header
 
     with open(txt_path, "r", encoding="utf-8-sig") as f:
-        # The files are purely pipe-delimited; QUOTE_NONE keeps embedded
-        # double quotes (in names and citations) from merging fields or rows.
-        reader = csv.DictReader(f, delimiter="|", quoting=csv.QUOTE_NONE)
-        reader.fieldnames = [name.lower() for name in (reader.fieldnames or [])]
+        reader = csv.DictReader(f, delimiter="|", quoting=csv.QUOTE_NONE, restval="")
+        reader.fieldnames = [name.strip().lower() for name in (reader.fieldnames or [])]
 
         pbar = tqdm(
             total=total_lines,
@@ -131,46 +115,3 @@ def _process_text_file(
             pbar.update(1)
 
         pbar.close()
-
-
-def _process_row(
-    row: dict,
-    triplifier_config: TriplifierConfig,
-    sink: NTStreamSink,
-) -> None:
-    """
-    Process a single row from the text file.
-
-    :param row: Dictionary representing a row.
-    :param triplifier_config: Configuration for field mappings.
-    :param sink: Streaming triple sink.
-    """
-    # Get subject IRI
-    subject_iri = triplifier_config.subject(row, sink)
-    if not subject_iri:
-        return
-
-    subject = _resolve_iri(subject_iri)
-
-    # Process each field
-    for field_name, descriptor in triplifier_config.fields.items():
-        value = row.get(field_name, "")
-
-        # Function descriptor - returns pairs to add
-        if callable(descriptor) and not isinstance(descriptor, FieldDescriptor):
-            pairs = descriptor(value, row, sink)
-            if pairs:
-                _add_pairs(sink, subject, pairs)
-
-        # Object descriptor
-        elif isinstance(descriptor, FieldDescriptor):
-            if not value:
-                # Skip missing values silently for text files
-                continue
-
-            if descriptor.predicate and descriptor.object:
-                predicate = _resolve_iri(descriptor.predicate)
-                obj = descriptor.object(value, row, sink)
-
-                if obj:
-                    _add_triple(sink, subject, predicate, obj)

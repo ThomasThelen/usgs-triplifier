@@ -1,8 +1,9 @@
 import pytest
 from rdflib import BNode, Graph, Literal, URIRef
 
-from conftest import make_gpkg_zip, parse_nt_gz
+from conftest import make_text_zip, parse_nt_gz
 from usgs_triplifier.config import config
+from usgs_triplifier.lib.gnis.text_triplifier import triplify_text_files
 from usgs_triplifier.lib.gnis.triplifier import (
     FieldDescriptor,
     TriplifierConfig,
@@ -11,9 +12,7 @@ from usgs_triplifier.lib.gnis.triplifier import (
     _parse_object,
     _resolve_iri,
     clean,
-    get_gpkg_zip_files,
     normalize_feature_id,
-    triplify_all,
 )
 
 XSD_DOUBLE = URIRef("http://www.w3.org/2001/XMLSchema#double")
@@ -93,14 +92,10 @@ def test_add_pairs_wraps_scalars():
     ]
 
 
-def test_get_gpkg_zip_files_empty(data_dirs):
-    assert get_gpkg_zip_files() == []
-
-
-def test_triplify_all_without_zips_raises(data_dirs):
+def test_triplify_text_files_without_zips_raises(data_dirs):
     cfg = TriplifierConfig(subject=lambda row, graph: None, fields={})
-    with pytest.raises(ValueError):
-        triplify_all(cfg, "Whatever")
+    with pytest.raises(FileNotFoundError):
+        triplify_text_files(cfg, "Nope_*_Text.zip", "nothing")
 
 
 def _test_config():
@@ -127,26 +122,22 @@ def _test_config():
     )
 
 
-def test_triplify_all_end_to_end(data_dirs):
+def test_triplify_text_files_end_to_end(data_dirs):
     input_dir, output_dir = data_dirs
-    make_gpkg_zip(
+    make_text_zip(
         input_dir,
-        "Test_GPKG.zip",
-        {
-            "TestTable": [
-                {"feature_id": "1", "name": "Alpha", "code": "a", "note": "cited"},
-                {"feature_id": "2", "name": "Beta", "code": None, "note": None},
-                {"feature_id": "", "name": "skipped", "code": None, "note": None},
-            ]
-        },
+        "Test_Text.zip",
+        "Text/Test.txt",
+        [
+            "FEATURE_ID|Name|code|note",
+            "1|Alpha|a|cited",
+            "2|Beta||",
+            "|skipped||",
+            "3|Gamma",
+        ],
     )
-    # A zip without a .gpkg inside is skipped
-    import zipfile
 
-    with zipfile.ZipFile(input_dir / "Empty_GPKG.zip", "w") as zf:
-        zf.writestr("readme.txt", "no gpkg here")
-
-    graph = triplify_all(_test_config(), "TestTable", "test-output")
+    graph = triplify_text_files(_test_config(), "Test_*.zip", "test-output")
 
     output_path = output_dir / "test-output.nt.gz"
     assert output_path.exists()
@@ -154,22 +145,24 @@ def test_triplify_all_end_to_end(data_dirs):
     parsed = parse_nt_gz(output_path)
     gnisf = config.prefix_list["gnisf"]
     rdfs_label = config.prefix_list["rdfs"]["label"]
+    feature_id = config.prefix_list["gnis"]["featureId"]
     assert (gnisf["1"], rdfs_label, Literal("Alpha", lang="en")) in parsed
     assert (gnisf["2"], rdfs_label, Literal("Beta", lang="en")) in parsed
+    assert (gnisf["3"], rdfs_label, Literal("Gamma", lang="en")) in parsed
     # Optional empty field skipped, subjectless row skipped
-    assert (
-        list(parsed.objects(gnisf["2"], config.prefix_list["gnis"]["featureId"])) == []
-    )
+    assert list(parsed.objects(gnisf["2"], feature_id)) == []
+    assert list(parsed.objects(gnisf["3"], feature_id)) == []
     assert len(list(parsed.subjects(rdfs_label, Literal("skipped", lang="en")))) == 0
     assert len(graph) == len(parsed)
 
 
-def test_triplify_all_missing_required_value_raises(data_dirs):
+def test_triplify_text_files_missing_required_value_raises(data_dirs):
     input_dir, _ = data_dirs
-    make_gpkg_zip(
+    make_text_zip(
         input_dir,
-        "Test_GPKG.zip",
-        {"TestTable": [{"feature_id": "1", "name": None, "code": None, "note": None}]},
+        "Test_Text.zip",
+        "Text/Test.txt",
+        ["feature_id|name|code|note", "1||a|"],
     )
     with pytest.raises(ValueError, match="Missing value"):
-        triplify_all(_test_config(), "TestTable")
+        triplify_text_files(_test_config(), "Test_*.zip", "test-output")

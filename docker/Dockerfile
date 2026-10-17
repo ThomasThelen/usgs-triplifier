@@ -1,23 +1,22 @@
 FROM ontotext/graphdb:10.8.12
 LABEL maintainer="DataONE <support@dataone.org>"
 
-# Install Python, pip, and system dependencies for geopandas/pyogrio
+# curl is for the readiness probe in the entrypoint
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        python3 \
-        python3-pip \
-        python3-venv \
-        curl \
-        libgdal-dev \
-        libgeos-dev \
-        && \
+    apt-get install -y --no-install-recommends curl && \
     rm -rf /var/lib/apt/lists/*
+
+# Use uv to manage the python version
+COPY --from=ghcr.io/astral-sh/uv:0.10 /uv /uvx /bin/
+ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python \
+    UV_PROJECT_ENVIRONMENT=/opt/venv
 
 WORKDIR /app
 
 # Copy and install the usgs-triplifier package
 COPY usgs-triplifier/ ./usgs-triplifier/
-RUN pip3 install --no-cache-dir --break-system-packages ./usgs-triplifier requests
+RUN cd usgs-triplifier && uv sync --frozen --no-dev --no-editable
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy ETL code and config
 COPY etl/code/ ./code/

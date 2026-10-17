@@ -12,7 +12,7 @@ The ETL process and graph database for gnis-ld.org data
 
 The USGS hosts several data products that contain information about places: their location, name(s), descriptions, geometries, etc. These files are hosted in several formats: text, gdb, and gpkg. This repository contains
 
-1. A python library for converting the names database in the gpkg data format to RDF
+1. A python library for converting the names database to RDF.
 2. A graph database service for hosting the data
 3. An ETL process for fetching the data from USGS, transforming it into RDF, and loading it into the graph database
 
@@ -46,7 +46,7 @@ USGS keeps its pre-GPKG file archive (through 2021-08-25) under `prd-tnm/StagedP
 2. Run the ETL with `ARCHIVE_MODE=true` and `RELEASE_DATE=<vintage date>`
    (e.g. `2021-08-25`).
 
-In archive mode the pipeline reads the old pipe-delimited formats(uppercase headers, two-letter state codes, `Y`/`N` official-name flags), emits `gnis:elevation` (which only the old vintages carry), and still harvests the crosswalks.
+In archive mode the pipeline reads the old pipe-delimited formats(uppercase headers, two-letter state codes, `Y`/`N` official-name flags), emits `gnis:elevation` (which only the old vintages carry), and still harvests the crosswalks. The old vintages have no GeoPackage, so a backfill carries only the point geometries.
 
 ## Configuration
 

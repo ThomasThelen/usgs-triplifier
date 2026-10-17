@@ -3,7 +3,6 @@ from rdflib.namespace import OWL
 
 from .text_triplifier import triplify_text_files
 from .triplifier import (
-    triplify_all,
     TriplifierConfig,
     FieldDescriptor,
     clean,
@@ -15,13 +14,6 @@ from ...config import config
 class UnitsTriplifier:
     """
     Abstraction over creating RDF triples about government units
-
-    Uses the GovernmentUnits table from GPKG files which contains:
-        - feature_id, unit_type (STATE/COUNTY)
-        - state_alpha, state_name, state_numeric
-        - county_name, county_numeric
-        - country_alpha, country_name
-        - feature_name
     """
 
     def __init__(self):
@@ -68,10 +60,10 @@ class UnitsTriplifier:
             subject=self.get_subject,
             fields=field_mappings,
         )
-        if config.archive_mode:
-            triplify_text_files(triples_mapping, "GOVT_UNITS*.zip", "units")
-        else:
-            triplify_all(triples_mapping, "GovernmentUnits", "units")
+        pattern = (
+            "GOVT_UNITS*.zip" if config.archive_mode else "GovernmentUnits*_Text.zip"
+        )
+        triplify_text_files(triples_mapping, pattern, "units")
 
     def get_subject(self, row: dict, graph: Graph) -> str | None:
         """

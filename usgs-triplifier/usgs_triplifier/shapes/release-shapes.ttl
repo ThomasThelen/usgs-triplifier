@@ -89,10 +89,12 @@ shapes:FeatureRecord a sh:NodeShape ;
 		sh:pattern "^[0-9]+$" ;
 		sh:maxCount 1 ;
 	] ;
+	# The primary point, plus the multipoint in releases built from the
+	# GeoPackage (the archived vintages carry only the point)
 	sh:property [
 		sh:path geosparql:hasGeometry ;
 		sh:nodeKind sh:IRI ;
-		sh:maxCount 1 ;
+		sh:maxCount 2 ;
 	] ;
 	sh:property [
 		sh:path gnis:elevation ;
@@ -109,13 +111,14 @@ shapes:Geometry a sh:NodeShape ;
 	sh:property [
 		sh:path geosparql:asWKT ;
 		sh:datatype geosparql:wktLiteral ;
-		sh:pattern "POINT\\(-?[0-9.]+ -?[0-9.]+\\)" ;
+		# A 2D POINT or MULTIPOINT, optionally prefixed with its CRS IRI
+		sh:pattern "^(<[^>]+>)?(POINT ?\\(-?[0-9.]+ -?[0-9.]+\\)|MULTIPOINT ?\\(\\(-?[0-9.]+ -?[0-9.]+\\)(, ?\\(-?[0-9.]+ -?[0-9.]+\\))*\\))$" ;
 		sh:minCount 1 ;
 		sh:maxCount 1 ;
 	] .
 
 
-# ---- elevation (archived vintages only) ----
+# ---- elevation ----
 
 shapes:ElevationQuantity a sh:NodeShape ;
 	sh:property [

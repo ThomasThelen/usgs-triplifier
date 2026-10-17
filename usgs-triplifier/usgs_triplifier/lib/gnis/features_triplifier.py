@@ -6,7 +6,6 @@ from rdflib.namespace import OWL, XSD
 
 from .text_triplifier import triplify_text_files
 from .triplifier import (
-    triplify_all,
     NTStreamSink,
     TriplifierConfig,
     FieldDescriptor,
@@ -100,17 +99,10 @@ feature_aliases: dict[str, list[str]] = {}
 class FeaturesTriplifier:
     """
     Abstraction over creating triples out of the features dataset.
-
-    Uses the DomesticNames table from GPKG files which contains:
-        - feature_id, feature_name, feature_class
-        - state_name, state_numeric, county_name, county_numeric
-        - map_name, date_created, date_edited
-        - prim_lat_dec, prim_long_dec (coordinates)
     """
 
     def __init__(self):
         config.output_directory.mkdir(parents=True, exist_ok=True)
-        geoms_file = open(config.output_directory / "geoms.tsv", "w")
         field_mappings = {
             "feature_id": FieldDescriptor(
                 predicate="gnis:featureId",
@@ -130,7 +122,7 @@ class FeaturesTriplifier:
                 object=self.county_object,
                 optional=True,
             ),
-            "prim_lat_dec": self.make_prim_lat_dec_field(geoms_file),
+            "prim_lat_dec": self.prim_lat_dec_field,
             "map_name": FieldDescriptor(
                 predicate="gnis:mapName",
                 object=self.map_name_object,
@@ -153,18 +145,18 @@ class FeaturesTriplifier:
             subject=self.get_subject,
             fields=field_mappings,
         )
-        if config.archive_mode:
-            # The archived vintage features come from the pipe-delimited NationalFile dump.
-            triplify_text_files(triples_mapping, "NationalFile*.zip", "features")
-        else:
-            triplify_all(triples_mapping, "DomesticNames", "features")
-        self._on_complete(geoms_file)
+        # Pattern for the deprecated data
+        pattern = (
+            "NationalFile*.zip" if config.archive_mode else "DomesticNames*_Text.zip"
+        )
+        triplify_text_files(triples_mapping, pattern, "features")
+        self._write_aliases()
 
     def get_subject(self, row: dict, graph: Graph) -> str | None:
         """
         Generate subject IRI for a GNIS feature.
 
-        :param row: Dictionary representing a row from the GPKG table.
+        :param row: Dictionary representing a source row.
         :param graph: RDF graph (unused but required by interface).
         :return: Subject IRI string or None if invalid.
         """
@@ -206,7 +198,7 @@ class FeaturesTriplifier:
         Convert feature ID to literal.
 
         :param value: Feature ID value.
-        :param row: Dictionary representing a row from the GPKG table.
+        :param row: Dictionary representing a source row.
         :param graph: RDF graph (unused but required by interface).
         :return: RDF Literal containing the feature ID.
         """
@@ -217,7 +209,7 @@ class FeaturesTriplifier:
         Convert feature class to RDF type.
 
         :param value: Feature class name.
-        :param row: Dictionary representing a row from the GPKG table.
+        :param row: Dictionary representing a source row.
         :param graph: RDF graph (unused but required by interface).
         :return: URIRef for the corresponding USGS ontology class.
         """
@@ -231,7 +223,7 @@ class FeaturesTriplifier:
         Convert state name to feature alias URI.
 
         :param value: State name value.
-        :param row: Dictionary representing a row from the GPKG table.
+        :param row: Dictionary representing a source row.
         :param graph: RDF graph (unused but required by interface).
         :return: URIRef for the state alias or empty string if no value.
         """
@@ -244,7 +236,7 @@ class FeaturesTriplifier:
         Convert county name to feature alias URI.
 
         :param value: County name value.
-        :param row: Dictionary representing a row from the GPKG table.
+        :param row: Dictionary representing a source row.
         :param graph: RDF graph (unused but required by interface).
         :return: URIRef for the county alias or UnknownCounty if no value.
         """
@@ -255,69 +247,50 @@ class FeaturesTriplifier:
             ]
         return config.prefix_list["gnis"]["UnknownCounty"]
 
-    def make_prim_lat_dec_field(self, geoms_file):
+    def prim_lat_dec_field(self, value: str, row: dict, graph: Graph) -> dict | None:
         """
-        Create a field processor for primary latitude with geometry output.
+        Process primary latitude and generate the point geometry.
 
-        :param geoms_file: File handle for writing geometry TSV data.
-        :return: Field processor function.
+        :param value: Primary latitude value.
+        :param row: Dictionary representing a source row.
+        :param graph: RDF graph to add geometry triples to.
+        :return: Dictionary of predicate-object pairs or None if no geometry.
         """
+        # Unknown coordinates are published as "0.0" in the current product
+        # and "0" in the archived vintages
+        if not value or value in ("0.0", "0"):
+            return None
 
-        def prim_lat_dec_field(value: str, row: dict, graph: Graph) -> dict | None:
-            """
-            Process primary latitude and generate geometry.
+        lat = value
+        lng = str(row.get("prim_long_dec") or "")
+        if not lng:
+            return None
 
-            :param value: Primary latitude value.
-            :param row: Dictionary representing a row from the GPKG table.
-            :param graph: RDF graph to add geometry triples to.
-            :return: Dictionary of predicate-object pairs or None if no geometry.
-            """
-            # Unknown coordinates: "0.0" in the GPKG, "0" in the archived
-            # text vintages
-            if not value or value in ("0.0", "0"):
-                return None
+        feature_id = normalize_feature_id(row.get("feature_id", ""))
 
-            lat = value
-            lng_raw = row.get("prim_long_dec", "")
-            # Skip the geometry entirely when the longitude is missing (None,
-            # NaN, or empty) so no 'POINT(nan ...)' WKT is ever produced.
-            if lng_raw is None or (isinstance(lng_raw, float) and lng_raw != lng_raw):
-                return None
-            lng = str(lng_raw)
-            if not lng:
-                return None
+        geom_iri = f"{config.geo_base}/point/gnisf.{feature_id}"
+        point_wkt = f"POINT({lng} {lat})"
 
-            feature_id = normalize_feature_id(row.get("feature_id", ""))
+        # Add WKT literal to geometry node
+        geom_uri = URIRef(geom_iri)
+        geosparql = config.prefix_list["geosparql"]
 
-            geom_iri = f"{config.geo_base}/point/gnisf.{feature_id}"
-            point_wkt = f"POINT({lng} {lat})"
+        wkt_literal = Literal(
+            f"<http://www.opengis.net/def/crs/OGC/1.3/CRS84>{point_wkt}",
+            datatype=geosparql["wktLiteral"],
+        )
+        graph.add((geom_uri, geosparql["asWKT"], wkt_literal))
 
-            # Write to geometry TSV
-            if geoms_file:
-                geoms_file.write(f"{geom_iri}\tSRID=4326;{point_wkt}\n")
-
-            # Add WKT literal to geometry node
-            geom_uri = URIRef(geom_iri)
-            geosparql = config.prefix_list["geosparql"]
-
-            wkt_literal = Literal(
-                f"<http://www.opengis.net/def/crs/OGC/1.3/CRS84>{point_wkt}",
-                datatype=geosparql["wktLiteral"],
-            )
-            graph.add((geom_uri, geosparql["asWKT"], wkt_literal))
-
-            return {
-                "geosparql:hasGeometry": [f">{geom_iri}"],
-            }
-
-        return prim_lat_dec_field
+        return {
+            "geosparql:hasGeometry": [f">{geom_iri}"],
+        }
 
     def elev_in_ft_field(self, value: str, row: dict, graph: Graph) -> dict | None:
         """
         Process elevation in feet and return nested blank node with QUDT properties.
 
         :param value: Elevation value in feet.
-        :param row: Dictionary representing a row from the GPKG table.
+        :param row: Dictionary representing a source row.
         :param graph: RDF graph (unused but required by interface).
         :return: Dictionary with nested blank node properties or None if no elevation.
         """
@@ -344,7 +317,7 @@ class FeaturesTriplifier:
         Convert map name to language-tagged literal.
 
         :param value: Map name value.
-        :param row: Dictionary representing a row from the GPKG table.
+        :param row: Dictionary representing a source row.
         :param graph: RDF graph (unused but required by interface).
         :return: RDF Literal with English language tag.
         """
@@ -355,7 +328,7 @@ class FeaturesTriplifier:
         Convert date string to XSD date literal.
 
         :param value: Date string value.
-        :param row: Dictionary representing a row from the GPKG table.
+        :param row: Dictionary representing a source row.
         :param graph: RDF graph (unused but required by interface).
         :return: RDF Literal with XSD date datatype or empty string if no value.
         """
@@ -371,16 +344,10 @@ class FeaturesTriplifier:
         except ValueError:
             return Literal(value)
 
-    def _on_complete(self, geoms_file) -> None:
+    def _write_aliases(self) -> None:
         """
-        Handle completion: close geometry file and write feature aliases.
-
-        :param geoms_file: File handle for geometry TSV data.
+        Writes the feature aliases collected while the features streamed.
         """
-        # Close geometry output
-        if geoms_file:
-            geoms_file.close()
-
         gnisf = config.prefix_list["gnisf"]
         gnisf_alias = config.prefix_list["gnisf-alias"]
         gnis = config.prefix_list["gnis"]

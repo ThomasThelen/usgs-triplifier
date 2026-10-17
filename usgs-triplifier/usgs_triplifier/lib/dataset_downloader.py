@@ -7,14 +7,13 @@ from ..config import config
 # S3 bucket for USGS data
 BUCKET = "prd-tnm"
 
-# GPKG dataset (main features)
+# GeoPackage datafile location
 GPKG_KEY = "StagedProducts/GeographicNames/FullModel/Gazetteer_National_GPKG.zip"
 
-# Text datasets with additional data (names, citations, dates, history)
+# Textfile dataset locations
 TEXT_DATASETS = [
+    "StagedProducts/GeographicNames/DomesticNames/DomesticNames_National_Text.zip",
     "StagedProducts/GeographicNames/Topical/AllNames_National_Text.zip",
-    "StagedProducts/GeographicNames/Topical/PopulatedPlaces_National_Text.zip",
-    "StagedProducts/GeographicNames/Topical/HistoricalFeatures_National_Text.zip",
     "StagedProducts/GeographicNames/Topical/GovernmentUnits_National_Text.zip",
     "StagedProducts/GeographicNames/Topical/FeatureDescriptionHistory_National_Text.zip",
 ]

@@ -1,23 +1,10 @@
-"""
-GNIS Triplifier - Converts GNIS data to RDF triples.
-
-This module extracts GNIS data from GeoPackage files (inside zip archives)
-and streams the triples out as gzipped N-Triples.
-"""
-
-import gzip
 import logging
 import re
-import tempfile
-import zipfile
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Callable
 
-import geopandas as gpd
 from rdflib import BNode, Graph, Literal, URIRef
 from rdflib.plugins.serializers.nt import _nt_row
-from tqdm import tqdm
 
 from ...config import config
 
@@ -89,83 +76,17 @@ def clean(s: str) -> str:
     return re.sub(r"[^\w]", "_", s)
 
 
-def get_gpkg_zip_files(pattern: str = "*_GPKG.zip") -> list[Path]:
+def _process_row(
+    row_dict: dict, triplifier_config: TriplifierConfig, sink: NTStreamSink
+) -> None:
     """
-    Get list of GPKG zip files from the input directory.
+    Emit the triples for one source row into the sink.
 
-    :param pattern: Glob pattern to match zip files.
-    :return: List of paths to zip files.
+    :param row_dict: Source row as a mapping of column name to value.
+    :param triplifier_config: Subject function and field mappings to apply.
+    :param sink: Streaming triple sink the row's triples are written to.
+    :raises ValueError: If a non-optional field has no value.
     """
-    return sorted(config.input_directory.glob(pattern))
-
-
-def triplify_all(
-    triplifier_config: TriplifierConfig,
-    table_name: str,
-    output_basename: str = "output",
-) -> NTStreamSink:
-    """
-    Process all GPKG zip files in the input directory.
-
-    :param triplifier_config: Triplifier configuration.
-    :param table_name: Name of the table to read from each GPKG file.
-    :param output_basename: Basename for output file.
-    :return: The sink the triples were streamed through.
-    """
-    zip_files = get_gpkg_zip_files()
-
-    if not zip_files:
-        raise ValueError(f"No GPKG zip files found in {config.input_directory}")
-
-    print(f"Found {len(zip_files)} GPKG zip files")
-
-    output_dir = config.output_directory
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{output_basename}.nt.gz"
-
-    with gzip.open(output_path, "wt", encoding="utf-8") as out:
-        sink = NTStreamSink(out)
-
-        # Process each zip file
-        for zip_path in zip_files:
-            logger.info(f"Processing {zip_path.name}")
-
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                gpkg_files = [f for f in zf.namelist() if f.endswith(".gpkg")]
-
-                if not gpkg_files:
-                    logger.debug("No GPKG file found, skipping")
-                    continue
-
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    for gpkg_file in gpkg_files:
-                        zf.extract(gpkg_file, tmpdir)
-                        gpkg_path = Path(tmpdir) / gpkg_file
-
-                        logger.debug(f"Reading table {table_name}")
-                        gdf = gpd.read_file(
-                            gpkg_path, layer=table_name, engine="pyogrio"
-                        )
-
-                        pbar = tqdm(
-                            total=len(gdf),
-                            unit="rows",
-                            desc="Processing",
-                            bar_format="{l_bar}{bar:40}{r_bar}",
-                        )
-
-                        for row in gdf.itertuples(index=False):
-                            _process_row(row._asdict(), triplifier_config, sink)
-                            pbar.update(1)
-
-                        pbar.close()
-
-    logger.info(f"Output written to {output_path}")
-    return sink
-
-
-def _process_row(row_dict: dict, triplifier_config: TriplifierConfig, sink) -> None:
-    """Emit the triples for one table row into the sink."""
     subject_iri = triplifier_config.subject(row_dict, sink)
     if not subject_iri:
         return
@@ -174,11 +95,7 @@ def _process_row(row_dict: dict, triplifier_config: TriplifierConfig, sink) -> N
 
     for field_name, descriptor in triplifier_config.fields.items():
         value = row_dict.get(field_name)
-
-        if value is None or (isinstance(value, float) and value != value):
-            value = ""
-        else:
-            value = str(value) if not isinstance(value, str) else value
+        value = "" if value is None else str(value)
 
         if callable(descriptor) and not isinstance(descriptor, FieldDescriptor):
             pairs = descriptor(value, row_dict, sink)

@@ -1,10 +1,11 @@
 import gzip
 import logging
 import zipfile
+from pathlib import Path
 
 import requests
 
-from conftest import make_gpkg_zip
+from conftest import make_text_zip
 from usgs_triplifier.config import config
 from usgs_triplifier.lib import geonames_crosswalk
 from usgs_triplifier.lib.crosswalk import GEONAMES_REFERENCE_BASENAME
@@ -15,6 +16,18 @@ from usgs_triplifier.lib.geonames_crosswalk import (
 )
 
 SAMEAS = "<http://www.w3.org/2002/07/owl#sameAs>"
+
+
+GNIS_COLUMNS = [
+    "feature_id",
+    "feature_name",
+    "feature_class",
+    "state_name",
+    "county_name",
+    "map_name",
+    "prim_lat_dec",
+    "prim_long_dec",
+]
 
 
 def _gnis_row(fid, name, state, lat, lon, cls="Lake"):
@@ -28,6 +41,23 @@ def _gnis_row(fid, name, state, lat, lon, cls="Lake"):
         "prim_lat_dec": lat,
         "prim_long_dec": lon,
     }
+
+
+def _gnis_zip(input_dir: Path, rows: list[dict[str, str | float]]) -> Path:
+    """
+    Stages the rows as the DomesticNames text product.
+
+    :param input_dir: Directory the crosswalk reads zips from.
+    :param rows: Row dicts keyed by the GNIS_COLUMNS names.
+    :return: Path to the zip file.
+    """
+    return make_text_zip(
+        input_dir,
+        "DomesticNames_National_Text.zip",
+        "Text/DomesticNames_National.txt",
+        ["|".join(GNIS_COLUMNS)]
+        + ["|".join(str(row[c]) for c in GNIS_COLUMNS) for row in rows],
+    )
 
 
 def _geonames_row(gid, name, lat, lon, state, gn_class="", alternates=""):
@@ -52,18 +82,15 @@ def _write_us_zip(input_dir, rows):
 
 def test_nearest_same_named_candidate_within_threshold_wins(data_dirs):
     input_dir, output_dir = data_dirs
-    make_gpkg_zip(
+    _gnis_zip(
         input_dir,
-        "Gazetteer_National_GPKG.zip",
-        {
-            "DomesticNames": [
-                _gnis_row("1", "Blue Lake", "California", 40.0, -120.0),
-                # same-named candidate exists but 50+ km away
-                _gnis_row("2", "Far Peak", "Alaska", 61.0, -150.0),
-                # also has a curated Wikidata pair (QA reference only)
-                _gnis_row("3", "Linked Lake", "California", 39.0, -121.0),
-            ]
-        },
+        [
+            _gnis_row("1", "Blue Lake", "California", 40.0, -120.0),
+            # same-named candidate exists but 50+ km away
+            _gnis_row("2", "Far Peak", "Alaska", 61.0, -150.0),
+            # also has a curated Wikidata pair (QA reference only)
+            _gnis_row("3", "Linked Lake", "California", 39.0, -121.0),
+        ],
     )
     _write_us_zip(
         input_dir,
@@ -99,34 +126,29 @@ def test_missing_dump_is_not_fatal(data_dirs, monkeypatch):
 
 def test_alignment_guardrails(data_dirs, caplog):
     input_dir, output_dir = data_dirs
-    make_gpkg_zip(
+    _gnis_zip(
         input_dir,
-        "Gazetteer_National_GPKG.zip",
-        {
-            "DomesticNames": [
-                # abbreviation + punctuation normalization
-                _gnis_row(
-                    "10", "St. Marys River", "California", 40.0, -120.0, "Stream"
-                ),
-                # found only via a GeoNames alternate name
-                _gnis_row("11", "Round Lake", "California", 40.2, -120.0, "Lake"),
-                # class gate: same name, but a stream is not a town
-                _gnis_row("12", "Milltown", "California", 40.4, -120.0, "Stream"),
-                # ambiguous: two candidates at similar distances -> abstain
-                _gnis_row("13", "Twin Pond", "California", 40.6, -120.0, "Lake"),
-                # one-to-one: two features, one GeoNames record
-                _gnis_row("14", "Shared Spring", "California", 41.0, -120.0, "Spring"),
-                _gnis_row("15", "Shared Spring", "California", 41.03, -120.0, "Spring"),
-                # point-like class: 7 km exceeds the tighter threshold
-                _gnis_row(
-                    "16", "Faraway City", "California", 42.0, -120.0, "Populated Place"
-                ),
-                # extended class: 7 km is within the default threshold
-                _gnis_row("17", "Long Creek", "California", 43.0, -120.0, "Stream"),
-                # curated link exists: agreement measured, heuristic defers
-                _gnis_row("18", "Check Lake", "California", 44.0, -120.0, "Lake"),
-            ]
-        },
+        [
+            # abbreviation + punctuation normalization
+            _gnis_row("10", "St. Marys River", "California", 40.0, -120.0, "Stream"),
+            # found only via a GeoNames alternate name
+            _gnis_row("11", "Round Lake", "California", 40.2, -120.0, "Lake"),
+            # class gate: same name, but a stream is not a town
+            _gnis_row("12", "Milltown", "California", 40.4, -120.0, "Stream"),
+            # ambiguous: two candidates at similar distances -> abstain
+            _gnis_row("13", "Twin Pond", "California", 40.6, -120.0, "Lake"),
+            # one-to-one: two features, one GeoNames record
+            _gnis_row("14", "Shared Spring", "California", 41.0, -120.0, "Spring"),
+            _gnis_row("15", "Shared Spring", "California", 41.03, -120.0, "Spring"),
+            # point-like class: 7 km exceeds the tighter threshold
+            _gnis_row(
+                "16", "Faraway City", "California", 42.0, -120.0, "Populated Place"
+            ),
+            # extended class: 7 km is within the default threshold
+            _gnis_row("17", "Long Creek", "California", 43.0, -120.0, "Stream"),
+            # curated link exists: agreement measured, heuristic defers
+            _gnis_row("18", "Check Lake", "California", 44.0, -120.0, "Lake"),
+        ],
     )
     _write_us_zip(
         input_dir,

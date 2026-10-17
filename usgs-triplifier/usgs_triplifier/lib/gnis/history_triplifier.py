@@ -2,7 +2,6 @@ from rdflib import Graph, Literal
 
 from .text_triplifier import triplify_text_files
 from .triplifier import (
-    triplify_all,
     TriplifierConfig,
     FieldDescriptor,
     normalize_feature_id,
@@ -12,12 +11,7 @@ from ...config import config
 
 class HistoryTriplifier:
     """
-    Abstraction over triplifying the Gaz_Features table (histories)
-
-    Uses the Gaz_Features table from GPKG files which contains:
-        - feature_id, feature_class
-        - description, history
-        - date_created, date_edited
+    Abstraction over triplifying the feature descriptions and histories
     """
 
     def __init__(self):
@@ -39,12 +33,12 @@ class HistoryTriplifier:
             fields=field_mappings,
         )
 
-        if config.archive_mode:
-            triplify_text_files(
-                triples_mapping, "Feature_Description_History*.zip", "history"
-            )
-        else:
-            triplify_all(triples_mapping, "Gaz_Features", "history")
+        pattern = (
+            "Feature_Description_History*.zip"
+            if config.archive_mode
+            else "FeatureDescriptionHistory*_Text.zip"
+        )
+        triplify_text_files(triples_mapping, pattern, "history")
 
     @staticmethod
     def get_subject(row: dict, graph: Graph) -> str | None:

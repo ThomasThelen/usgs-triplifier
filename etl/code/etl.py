@@ -19,6 +19,7 @@ from usgs_triplifier.lib.gnis import (
     NamesTriplifier,
     HistoryTriplifier,
 )
+from usgs_triplifier.lib.gnis.geometry_triplifier import triplify_geometries
 from config import config
 from graphdb_adapter import GraphDBAdapter
 
@@ -61,6 +62,11 @@ def main() -> None:
         UnitsTriplifier,
     ]:
         triplifier()
+
+    # Geometries weren't included in the archive, so only attempt when not in 
+    # archive mode
+    if not config.archive_mode:
+        triplify_geometries()
 
     # The crosswalks run for backfills too — the links are keyed on the
     # stable GNIS ids, so they hold for any vintage. They reflect the

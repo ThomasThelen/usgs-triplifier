@@ -74,6 +74,60 @@ def test_upstream_date_quirk_is_only_a_warning(data_dirs, caplog):
     assert "SHACL warning" in caplog.text
 
 
+GEO = "http://gnis-ld.org/geometry"
+GEOSPARQL = "http://www.opengis.net/ont/geosparql#"
+CRS84 = "<http://www.opengis.net/def/crs/OGC/1.3/CRS84>"
+
+
+def _wkt(node: str, wkt: str) -> str:
+    """
+    Builds the N-Triples line attaching a CRS84 WKT literal to a geometry node.
+
+    :param node: IRI of the geometry node.
+    :param wkt: WKT text, without the CRS prefix.
+    :return: The N-Triples line.
+    """
+    return f'<{node}> <{GEOSPARQL}asWKT> "{CRS84}{wkt}"^^<{GEOSPARQL}wktLiteral> .'
+
+
+def test_point_and_multipoint_geometries_conform(data_dirs):
+    _, output_dir = data_dirs
+    point = f"{GEO}/point/gnisf.1"
+    multipoint = f"{GEO}/multipoint/gnisf.1"
+    _write(
+        output_dir,
+        "features.nt.gz",
+        GOOD_FEATURE
+        + [
+            f"<{LOD}/gnis/feature/1> <{GEOSPARQL}hasGeometry> <{point}> .",
+            _wkt(point, "POINT(-117.2 34.5)"),
+        ],
+    )
+    _write(
+        output_dir,
+        "geometries.nt.gz",
+        [
+            f"<{LOD}/gnis/feature/1> <{GEOSPARQL}hasGeometry> <{multipoint}> .",
+            _wkt(multipoint, "MULTIPOINT ((-117.2 34.5), (-117.1 34.6))"),
+        ],
+    )
+    assert validate_release() is True
+
+
+def test_three_dimensional_wkt_is_a_violation(data_dirs):
+    _, output_dir = data_dirs
+    multipoint = f"{GEO}/multipoint/gnisf.1"
+    _write(
+        output_dir,
+        "geometries.nt.gz",
+        [
+            f"<{LOD}/gnis/feature/1> <{GEOSPARQL}hasGeometry> <{multipoint}> .",
+            _wkt(multipoint, "MULTIPOINT Z ((-117.2 34.5 0))"),
+        ],
+    )
+    assert validate_release() is False
+
+
 def test_sampling_respects_subject_budget(data_dirs, monkeypatch):
     _, output_dir = data_dirs
     monkeypatch.setattr(config, "shacl_sample_subjects", 1)

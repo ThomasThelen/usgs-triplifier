@@ -1,19 +1,17 @@
 import gzip
 import logging
 import re
-import tempfile
 import unicodedata
 import zipfile
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pyogrio
 import requests
 
 from ..config import config
 from .crosswalk import GEONAMES_REFERENCE_BASENAME, OWL_SAMEAS
-from .gnis.triplifier import get_gpkg_zip_files, normalize_feature_id
+from .gnis.triplifier import normalize_feature_id
 
 GEONAMES_CROSSWALK_BASENAME = "geonames-crosswalk.nt.gz"
 US_DUMP_BASENAME = "US.zip"
@@ -443,32 +441,26 @@ def _fetch_dump() -> Path | None:
 
 
 def _load_gnis() -> pd.DataFrame:
-    """Feature id, name, class, state code, and coordinates from the inputs."""
+    """
+    Loads the GNIS features from DomesticNames or if in archive mode,
+    loads the legacy NationalFile dump.
+
+    :return: A dataframe of feature id, name, class, state code, and
+        coordinates, limited to the features with known coordinates.
+    """
     if config.archive_mode:
         return _load_gnis_archive()
-    frames = []
-    for zip_path in get_gpkg_zip_files():
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            gpkg_files = [f for f in zf.namelist() if f.endswith(".gpkg")]
-            with tempfile.TemporaryDirectory() as tmpdir:
-                for gpkg_file in gpkg_files:
-                    zf.extract(gpkg_file, tmpdir)
-                    frames.append(
-                        pyogrio.read_dataframe(
-                            Path(tmpdir) / gpkg_file,
-                            layer="DomesticNames",
-                            columns=[
-                                "feature_id",
-                                "feature_name",
-                                "feature_class",
-                                "state_name",
-                                "prim_lat_dec",
-                                "prim_long_dec",
-                            ],
-                            read_geometry=False,
-                        )
-                    )
-    gnis = pd.concat(frames, ignore_index=True).rename(
+    gnis = _read_gnis_text(
+        "DomesticNames*_Text.zip",
+        [
+            "feature_id",
+            "feature_name",
+            "feature_class",
+            "state_name",
+            "prim_lat_dec",
+            "prim_long_dec",
+        ],
+    ).rename(
         columns={
             "feature_name": "name",
             "prim_lat_dec": "lat",
@@ -476,34 +468,27 @@ def _load_gnis() -> pd.DataFrame:
         }
     )
     gnis["state"] = gnis["state_name"].map(STATE_ABBREVIATIONS)
-    gnis = gnis.dropna(subset=["name", "state", "lat", "lon"])
-    return gnis[gnis["lat"].astype(float) != 0.0]
+    return _with_known_coordinates(gnis)
 
 
 def _load_gnis_archive() -> pd.DataFrame:
     """
-    The same columns from an archived NationalFile dump.
+    Loads the archive and normalizes the columns names to match
+    the IR format that the matcher expects.
+
+    :return: A dataframe of the gnis features
     """
-    frames = []
-    for zip_path in sorted(config.input_directory.glob("NationalFile*.zip")):
-        frames.append(
-            pd.read_csv(
-                zip_path,
-                sep="|",
-                dtype=str,
-                encoding="utf-8-sig",
-                quoting=3,
-                usecols=[
-                    "FEATURE_ID",
-                    "FEATURE_NAME",
-                    "FEATURE_CLASS",
-                    "STATE_ALPHA",
-                    "PRIM_LAT_DEC",
-                    "PRIM_LONG_DEC",
-                ],
-            )
-        )
-    gnis = pd.concat(frames, ignore_index=True).rename(
+    gnis = _read_gnis_text(
+        "NationalFile*.zip",
+        [
+            "FEATURE_ID",
+            "FEATURE_NAME",
+            "FEATURE_CLASS",
+            "STATE_ALPHA",
+            "PRIM_LAT_DEC",
+            "PRIM_LONG_DEC",
+        ],
+    ).rename(
         columns={
             "FEATURE_ID": "feature_id",
             "FEATURE_NAME": "name",
@@ -513,6 +498,42 @@ def _load_gnis_archive() -> pd.DataFrame:
             "PRIM_LONG_DEC": "lon",
         }
     )
+    return _with_known_coordinates(gnis)
+
+
+def _read_gnis_text(zip_pattern: str, usecols: list[str]) -> pd.DataFrame:
+    """
+    Reads the columns from the gnis text data files.
+
+    :param zip_pattern: Glob for the zips to read.
+    :param usecols: Columns to keep.
+    :return: A string-typed dataframe of the requested columns.
+    """
+    frames = []
+    for zip_path in sorted(config.input_directory.glob(zip_pattern)):
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            for txt_name in (n for n in zf.namelist() if n.endswith(".txt")):
+                with zf.open(txt_name) as f:
+                    frames.append(
+                        pd.read_csv(
+                            f,
+                            sep="|",
+                            dtype=str,
+                            encoding="utf-8-sig",
+                            quoting=3,
+                            usecols=usecols,
+                        )
+                    )
+    return pd.concat(frames, ignore_index=True)
+
+
+def _with_known_coordinates(gnis: pd.DataFrame) -> pd.DataFrame:
+    """
+    Drops the rows that cannot be aligned (no name, state, or real coordinates).
+
+    :param gnis: GNIS features with name, state, lat, and lon columns.
+    :return: The rows with a name, a state, and non-zero coordinates.
+    """
     gnis = gnis.dropna(subset=["name", "state", "lat", "lon"])
     return gnis[gnis["lat"].astype(float) != 0.0]
 

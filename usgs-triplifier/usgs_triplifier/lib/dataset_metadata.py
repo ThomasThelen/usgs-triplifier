@@ -198,7 +198,7 @@ def _published(dump_path: Path, release_id: str) -> str:
         published = json.loads(sidecar.read_text()).get("published")
         if published:
             return published
-    except (OSError, ValueError):
+    except OSError, ValueError:
         pass
     return f"20{release_id[0:2]}-{release_id[2:4]}-{release_id[4:6]}"
 

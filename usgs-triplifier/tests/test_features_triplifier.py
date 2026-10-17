@@ -1,62 +1,48 @@
+from pathlib import Path
+
 from rdflib import Graph, Literal, URIRef
 from rdflib.namespace import OWL, XSD
 
-from conftest import make_gpkg_zip, parse_nt_gz
+from conftest import make_text_zip, parse_nt_gz
 from usgs_triplifier.config import config
 from usgs_triplifier.lib.gnis import features_triplifier
 from usgs_triplifier.lib.gnis.features_triplifier import FeaturesTriplifier
 
+# The columns the triplifier reads, plus elev_in_ft to show it is ignored
+# outside archive mode
+HEADER = (
+    "feature_id|feature_name|feature_class|state_name|county_name|map_name"
+    "|date_created|date_edited|prim_lat_dec|prim_long_dec|elev_in_ft"
+)
 
-def _rows():
-    return [
-        {
-            "feature_id": "1",
-            "feature_name": "Blue Lake",
-            "feature_class": "Lake",
-            "state_name": "California",
-            "county_name": "Alameda",
-            "map_name": "Oakland East",
-            "prim_lat_dec": 34.5,
-            "prim_long_dec": -117.2,
-            "elev_in_ft": 5280.0,
-            "date_created": "01/02/1998",
-            "date_edited": "1998-10-06T06:13:42",
-        },
-        {
-            # Same alias as row 1 -> disambiguation; missing longitude -> no geometry
-            "feature_id": "2",
-            "feature_name": "Blue Lake",
-            "feature_class": "Lake",
-            "state_name": "California",
-            "county_name": "Alameda",
-            "map_name": "Oakland East",
-            "prim_lat_dec": 34.6,
-            "prim_long_dec": float("nan"),
-            "elev_in_ft": float("nan"),
-            "date_created": "bogus",
-            "date_edited": None,
-        },
-        {
-            # Mapped class name (Range -> MountainRange), unique alias -> sameAs
-            "feature_id": "3",
-            "feature_name": "High Ridge",
-            "feature_class": "Range",
-            "state_name": "Nevada",
-            "county_name": "Clark",
-            "map_name": "Vegas NE",
-            "prim_lat_dec": 36.1,
-            "prim_long_dec": -115.1,
-            "elev_in_ft": float("nan"),
-            "date_created": "02/03/2000",
-            "date_edited": "2001-01-01T00:00:00",
-        },
-    ]
+
+def _features_zip(input_dir: Path) -> Path:
+    """
+    Stages a DomesticNames text product covering the triplifier's edge cases.
+
+    :param input_dir: Directory the triplifier reads zips from.
+    :return: Path to the zip file.
+    """
+    return make_text_zip(
+        input_dir,
+        "DomesticNames_National_Text.zip",
+        "Text/DomesticNames_National.txt",
+        [
+            HEADER,
+            "1|Blue Lake|Lake|California|Alameda|Oakland East"
+            "|01/02/1998|10/06/1998|34.5|-117.2|5280",
+            "2|Blue Lake|Lake|California|Alameda|Oakland East|bogus||34.6||",
+            "3|High Ridge|Range|Nevada|Clark|Vegas NE"
+            "|02/03/2000|01/01/2001|36.1|-115.1|",
+            "4|Lone Rock|Summit|||Map|||40.0|-110.0|",
+        ],
+    )
 
 
 def test_features_end_to_end(data_dirs, monkeypatch):
     input_dir, output_dir = data_dirs
     monkeypatch.setattr(features_triplifier, "feature_aliases", {})
-    make_gpkg_zip(input_dir, "Gazetteer_National_GPKG.zip", {"DomesticNames": _rows()})
+    _features_zip(input_dir)
 
     FeaturesTriplifier()
 
@@ -67,7 +53,7 @@ def test_features_end_to_end(data_dirs, monkeypatch):
     usgs = config.prefix_list["usgs"]
     geosparql = config.prefix_list["geosparql"]
 
-    # Class mapping and typing
+    # Check class mappings and typings
     assert (
         gnisf["1"],
         URIRef("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"),
@@ -79,7 +65,7 @@ def test_features_end_to_end(data_dirs, monkeypatch):
         usgs["MountainRange"],
     ) in graph
 
-    # Geometry present for rows with both coordinates, absent otherwise
+    # Check that the geometry is present for rows with both coordinates or absent otherwise
     assert list(graph.objects(gnisf["1"], geosparql["hasGeometry"])) == [
         URIRef(f"{config.geo_base}/point/gnisf.1")
     ]
@@ -87,9 +73,7 @@ def test_features_end_to_end(data_dirs, monkeypatch):
     geom_node = URIRef(f"{config.geo_base}/point/gnisf.1")
     wkt = list(graph.objects(geom_node, geosparql["asWKT"]))
     assert len(wkt) == 1 and "POINT(-117.2 34.5)" in str(wkt[0])
-    assert "nan" not in graph.serialize(format="turtle")
 
-    # Dates: both formats normalize, unparsable passes through
     assert list(graph.objects(gnisf["1"], gnis["dateFeatureCreated"])) == [
         Literal("1998-01-02", datatype=XSD.date)
     ]
@@ -99,15 +83,13 @@ def test_features_end_to_end(data_dirs, monkeypatch):
     assert list(graph.objects(gnisf["2"], gnis["dateFeatureCreated"])) == [
         Literal("bogus")
     ]
+    assert list(graph.objects(gnisf["2"], gnis["dateFeatureEdited"])) == []
 
-    # geoms.tsv only contains rows with full coordinates
-    geoms = (output_dir / "geoms.tsv").read_text().strip().splitlines()
-    assert len(geoms) == 2
-    assert geoms[0].startswith(
-        f"{config.geo_base}/point/gnisf.1\tSRID=4326;POINT(-117.2 34.5)"
-    )
+    # Check that empty states and counties produce no links
+    assert list(graph.objects(gnisf["4"], gnis["state"])) == []
+    assert list(graph.objects(gnisf["4"], gnis["county"])) == []
+    assert "None" not in graph.serialize(format="nt")
 
-    # Aliases: shared alias disambiguates, unique alias is sameAs
     aliases = parse_nt_gz(output_dir / "feature-aliases.nt.gz")
     gnisf_alias = config.prefix_list["gnisf-alias"]
     shared = gnisf_alias["California.Alameda.Lake.Blue_Lake"]
@@ -117,6 +99,9 @@ def test_features_end_to_end(data_dirs, monkeypatch):
     }
     unique = gnisf_alias["Nevada.Clark.MountainRange.High_Ridge"]
     assert list(aliases.objects(unique, OWL.sameAs)) == [gnisf["3"]]
+    assert list(aliases.objects(gnisf_alias["..Summit.Lone_Rock"], OWL.sameAs)) == [
+        gnisf["4"]
+    ]
 
 
 def test_state_and_county_object_edge_cases():
@@ -135,14 +120,17 @@ def test_state_and_county_object_edge_cases():
 
 def test_prim_lat_dec_field_guards():
     ft = FeaturesTriplifier.__new__(FeaturesTriplifier)
-    field = ft.make_prim_lat_dec_field(None)
-    assert field("", {"feature_id": 1}, Graph()) is None
-    assert field("0.0", {"feature_id": 1}, Graph()) is None
-    assert field("34.5", {"feature_id": 1}, Graph()) is None
+    assert ft.prim_lat_dec_field("", {"feature_id": "1"}, Graph()) is None
+    assert ft.prim_lat_dec_field("0.0", {"feature_id": "1"}, Graph()) is None
+    assert ft.prim_lat_dec_field("0", {"feature_id": "1"}, Graph()) is None
+    assert ft.prim_lat_dec_field("34.5", {"feature_id": "1"}, Graph()) is None
     assert (
-        field("34.5", {"prim_long_dec": float("nan"), "feature_id": 1}, Graph()) is None
+        ft.prim_lat_dec_field("34.5", {"prim_long_dec": "", "feature_id": "1"}, Graph())
+        is None
     )
-    result = field("34.5", {"prim_long_dec": -117.2, "feature_id": 1}, Graph())
+    result = ft.prim_lat_dec_field(
+        "34.5", {"prim_long_dec": "-117.2", "feature_id": "1"}, Graph()
+    )
     assert result == {"geosparql:hasGeometry": [f">{config.geo_base}/point/gnisf.1"]}
 
 
@@ -163,7 +151,7 @@ def test_elev_in_ft_field_guards():
 def test_current_sources_omit_elevation(data_dirs, monkeypatch):
     input_dir, output_dir = data_dirs
     monkeypatch.setattr(features_triplifier, "feature_aliases", {})
-    make_gpkg_zip(input_dir, "Gazetteer_National_GPKG.zip", {"DomesticNames": _rows()})
+    _features_zip(input_dir)
 
     FeaturesTriplifier()
 
