@@ -35,7 +35,7 @@ class HistoryTriplifier:
 
         pattern = (
             "Feature_Description_History*.zip"
-            if config.archive_mode
+            if config.legacy_dump
             else "FeatureDescriptionHistory*_Text.zip"
         )
         triplify_text_files(triples_mapping, pattern, "history")

@@ -442,14 +442,14 @@ def _fetch_dump() -> Path | None:
 
 def _load_gnis() -> pd.DataFrame:
     """
-    Loads the GNIS features from DomesticNames or if in archive mode,
-    loads the legacy NationalFile dump.
+    Loads the GNIS features from DomesticNames, or from NationalFile when
+    the input is a legacy dump.
 
     :return: A dataframe of feature id, name, class, state code, and
         coordinates, limited to the features with known coordinates.
     """
-    if config.archive_mode:
-        return _load_gnis_archive()
+    if config.legacy_dump:
+        return _load_gnis_legacy()
     gnis = _read_gnis_text(
         "DomesticNames*_Text.zip",
         [
@@ -471,10 +471,10 @@ def _load_gnis() -> pd.DataFrame:
     return _with_known_coordinates(gnis)
 
 
-def _load_gnis_archive() -> pd.DataFrame:
+def _load_gnis_legacy() -> pd.DataFrame:
     """
-    Loads the archive and normalizes the columns names to match
-    the IR format that the matcher expects.
+    Loads the GNIS features from a legacy NationalFile and renames the
+    columns to the names the matcher expects.
 
     :return: A dataframe of the gnis features
     """

@@ -90,7 +90,7 @@ shapes:FeatureRecord a sh:NodeShape ;
 		sh:maxCount 1 ;
 	] ;
 	# The primary point, plus the multipoint in releases built from the
-	# GeoPackage (the archived vintages carry only the point)
+	# GeoPackage (releases from legacy dumps only have the point)
 	sh:property [
 		sh:path geosparql:hasGeometry ;
 		sh:nodeKind sh:IRI ;

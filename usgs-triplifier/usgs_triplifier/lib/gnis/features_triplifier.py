@@ -24,11 +24,11 @@ GNIS_CLASS_MAPPINGS = {
     "Pillar": "Rock",
 }
 
-# The archived NationalFile vintages carry STATE_ALPHA codes where the modern
-# GPKG carries full state names; feature-alias and gnis:state URIs are built
-# from the full names, so backfills must expand the codes to the exact
-# spellings the current releases use (e.g. gnisf-alias:United_States_Virgin_Islands).
-ARCHIVE_STATE_NAMES = {
+# Legacy dumps give the state as a two-letter STATE_ALPHA code, while the
+# current products give the full state name. Feature-alias and gnis:state
+# URIs are built from the full name, so the codes are expanded to the exact
+# spellings the current products use (e.g. gnisf-alias:United_States_Virgin_Islands).
+LEGACY_STATE_NAMES = {
     "AL": "Alabama",
     "AK": "Alaska",
     "AZ": "Arizona",
@@ -86,7 +86,7 @@ ARCHIVE_STATE_NAMES = {
     "VI": "United States Virgin Islands",
     "MP": "Northern Mariana Islands",
     "UM": "U.S. Minor Outlying Islands",
-    # Compact-of-free-association states, present only in the old vintages
+    # Compact-of-free-association states, which only appear in legacy dumps
     "FM": "Federated States of Micronesia",
     "MH": "Marshall Islands",
     "PW": "Palau",
@@ -139,15 +139,16 @@ class FeaturesTriplifier:
                 optional=True,
             ),
         }
-        if config.archive_mode:
+        # Only legacy dumps have an elevation column
+        if config.legacy_dump:
             field_mappings["elev_in_ft"] = self.elev_in_ft_field
         triples_mapping = TriplifierConfig(
             subject=self.get_subject,
             fields=field_mappings,
         )
-        # Pattern for the deprecated data
+        # Legacy dumps put the features in NationalFile
         pattern = (
-            "NationalFile*.zip" if config.archive_mode else "DomesticNames*_Text.zip"
+            "NationalFile*.zip" if config.legacy_dump else "DomesticNames*_Text.zip"
         )
         triplify_text_files(triples_mapping, pattern, "features")
         self._write_aliases()
@@ -167,7 +168,7 @@ class FeaturesTriplifier:
         # both see the full name)
         if not row.get("state_name") and row.get("state_alpha"):
             alpha = str(row["state_alpha"])
-            row["state_name"] = ARCHIVE_STATE_NAMES.get(alpha, alpha)
+            row["state_name"] = LEGACY_STATE_NAMES.get(alpha, alpha)
 
         # Get and normalize class name
         feature_class = str(row.get("feature_class", "")).replace(" ", "")
@@ -256,8 +257,8 @@ class FeaturesTriplifier:
         :param graph: RDF graph to add geometry triples to.
         :return: Dictionary of predicate-object pairs or None if no geometry.
         """
-        # Unknown coordinates are published as "0.0" in the current product
-        # and "0" in the archived vintages
+        # Unknown coordinates are written as "0.0" in the current products
+        # and "0" in legacy dumps
         if not value or value in ("0.0", "0"):
             return None
 

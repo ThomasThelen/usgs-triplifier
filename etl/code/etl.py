@@ -32,17 +32,11 @@ logger = logging.getLogger("etl")
 
 
 def main() -> None:
-    if config.archive_mode and not config.release_date:
-        logger.error(
-            "ARCHIVE_MODE requires RELEASE_DATE (the vintage of the archived "
-            "dump, e.g. 2021-08-25)"
+    if config.legacy_dump:
+        logger.info(
+            f"Reading the {config.legacy_dump_date} legacy dump from the input "
+            "directory; skipping the download"
         )
-        sys.exit(1)
-
-    if config.archive_mode:
-        # Backfills read hand-placed archived dumps; downloading would fetch
-        # today's sources over them
-        logger.info("Archive mode: skipping download, using the staged input files")
     elif config.download_data:
         logger.info("Downloading...")
         DatasetDownloader.download()
@@ -63,14 +57,11 @@ def main() -> None:
     ]:
         triplifier()
 
-    # Geometries weren't included in the archive, so only attempt when not in 
-    # archive mode
-    if not config.archive_mode:
+    if not config.legacy_dump:
         triplify_geometries()
 
-    # The crosswalks run for backfills too — the links are keyed on the
-    # stable GNIS ids, so they hold for any vintage. They reflect the
-    # external sources as of the harvest, not the release date.
+    # The crosswalks also run for legacy dumps because the links are keyed on
+    # GNIS feature ids, which do not change between dumps.
     logger.info("Harvesting crosswalk links from Wikidata")
     build_crosswalk()
 
@@ -85,9 +76,10 @@ def main() -> None:
     logger.info("Removing duplicate triples")
     remove_duplicate_triples()
 
+    release_date = config.legacy_dump_date or config.release_date
     build_time = (
-        datetime.fromisoformat(config.release_date).replace(tzinfo=timezone.utc)
-        if config.release_date
+        datetime.fromisoformat(release_date).replace(tzinfo=timezone.utc)
+        if release_date
         else datetime.now(timezone.utc)
     )
 
@@ -111,10 +103,8 @@ def main() -> None:
         build_time, archive_path=archive_path, historical_path=historical_path
     )
 
-    if config.archive_mode:
-        # A backfill only publishes to the archive; the live repository
-        # keeps serving the current release
-        logger.info("Archive mode: leaving GraphDB untouched")
+    if config.legacy_dump:
+        logger.info("Legacy dump: not reloading GraphDB")
         logger.info("ETL complete")
         return
 

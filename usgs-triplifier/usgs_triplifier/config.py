@@ -32,12 +32,14 @@ class Config(BaseSettings):
     # Public website base URL, used for release download links in metadata
     site_base: str = Field(default="https://gnis-ld.org", alias="SITE_BASE")
 
-    # Re-triplifying an archived dump (through 2025) rather than current USGS
-    # sources. Elevation is only present in the archived dumps.
-    archive_mode: bool = Field(default=False, alias="ARCHIVE_MODE")
+    # Date (YYYY-MM-DD) of the legacy dump in the input directory. A legacy
+    # dump is a GNIS export in the file format USGS used until 2021. When set,
+    # the triplifiers read that format and the release is dated with this
+    # value. When unset, the current USGS products are read.
+    legacy_dump_date: str | None = Field(default=None, alias="LEGACY_DUMP_DATE")
 
-    # Override the build timestamp (YYYY-MM-DD) for reruns and backfills;
-    # defaults to the time of the run
+    # Date (YYYY-MM-DD) to put on the release instead of the time of the run.
+    # Ignored when legacy_dump_date is set.
     release_date: str | None = Field(default=None, alias="RELEASE_DATE")
 
     # SPARQL endpoint the crosswalk links are harvested from (P590 backlinks)
@@ -96,6 +98,15 @@ class Config(BaseSettings):
         "ago": Namespace("http://awesemantic-geo.link/ontology/"),
         "geonames": Namespace("http://sws.geonames.org/"),
     }
+
+    @property
+    def legacy_dump(self) -> bool:
+        """
+        Reports whether the input directory holds a legacy dump.
+
+        :return: True when legacy_dump_date is set.
+        """
+        return self.legacy_dump_date is not None
 
     @computed_field
     @property

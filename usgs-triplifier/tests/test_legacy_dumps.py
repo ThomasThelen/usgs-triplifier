@@ -32,10 +32,10 @@ def _national_file_zip(input_dir):
     )
 
 
-def test_features_from_archived_national_file(data_dirs, monkeypatch):
+def test_features_from_legacy_national_file(data_dirs, monkeypatch):
     input_dir, output_dir = data_dirs
     monkeypatch.setattr(features_triplifier, "feature_aliases", {})
-    monkeypatch.setattr(config, "archive_mode", True)
+    monkeypatch.setattr(config, "legacy_dump_date", "2021-08-25")
     _national_file_zip(input_dir)
 
     FeaturesTriplifier()
@@ -59,7 +59,7 @@ def test_features_from_archived_national_file(data_dirs, monkeypatch):
         aliases.objects(gnisf_alias["Alaska.Denali.Summit.Denali"], OWL.sameAs)
     ) == [gnisf["1414314"]]
 
-    # Elevation only exists in the archived vintages
+    # Only legacy dumps have an elevation column
     elev_nodes = list(graph.objects(gnisf["1414314"], gnis["elevation"]))
     assert len(elev_nodes) == 1 and isinstance(elev_nodes[0], BNode)
     assert list(graph.objects(elev_nodes[0], qudt["numericValue"])) == [
@@ -83,9 +83,9 @@ def test_features_from_archived_national_file(data_dirs, monkeypatch):
     ]
 
 
-def test_names_from_archived_all_names(data_dirs, monkeypatch):
+def test_names_from_legacy_all_names(data_dirs, monkeypatch):
     input_dir, output_dir = data_dirs
-    monkeypatch.setattr(config, "archive_mode", True)
+    monkeypatch.setattr(config, "legacy_dump_date", "2021-08-25")
     make_text_zip(
         input_dir,
         "AllNames.zip",
@@ -113,9 +113,9 @@ def test_names_from_archived_all_names(data_dirs, monkeypatch):
     ]
 
 
-def test_history_from_archived_description_history(data_dirs, monkeypatch):
+def test_history_from_legacy_description_history(data_dirs, monkeypatch):
     input_dir, output_dir = data_dirs
-    monkeypatch.setattr(config, "archive_mode", True)
+    monkeypatch.setattr(config, "legacy_dump_date", "2021-08-25")
     make_text_zip(
         input_dir,
         "Feature_Description_History.zip",
@@ -139,9 +139,9 @@ def test_history_from_archived_description_history(data_dirs, monkeypatch):
     ]
 
 
-def test_units_from_archived_govt_units(data_dirs, monkeypatch):
+def test_units_from_legacy_govt_units(data_dirs, monkeypatch):
     input_dir, output_dir = data_dirs
-    monkeypatch.setattr(config, "archive_mode", True)
+    monkeypatch.setattr(config, "legacy_dump_date", "2021-08-25")
     make_text_zip(
         input_dir,
         "GOVT_UNITS.zip",
@@ -174,9 +174,9 @@ def test_units_from_archived_govt_units(data_dirs, monkeypatch):
     ]
 
 
-def test_geonames_loader_reads_archived_national_file(data_dirs, monkeypatch):
+def test_geonames_loader_reads_legacy_national_file(data_dirs, monkeypatch):
     input_dir, _ = data_dirs
-    monkeypatch.setattr(config, "archive_mode", True)
+    monkeypatch.setattr(config, "legacy_dump_date", "2021-08-25")
     _national_file_zip(input_dir)
 
     gnis = geonames_crosswalk._load_gnis()

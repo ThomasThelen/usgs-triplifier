@@ -61,7 +61,7 @@ class UnitsTriplifier:
             fields=field_mappings,
         )
         pattern = (
-            "GOVT_UNITS*.zip" if config.archive_mode else "GovernmentUnits*_Text.zip"
+            "GOVT_UNITS*.zip" if config.legacy_dump else "GovernmentUnits*_Text.zip"
         )
         triplify_text_files(triples_mapping, pattern, "units")
 

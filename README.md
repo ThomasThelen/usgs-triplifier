@@ -35,18 +35,18 @@ Two behaviors to know about:
 
 - **Full replacement.** Each load clears the repository and reloads it, so stale values never accumulate. The dataset metadata re-describes every archived release on every build, which is how the release lineage stays queryable across reloads.
 
-## Backfilling from legacy data
+## Building releases from legacy dumps
 
-USGS keeps its pre-GPKG file archive (through 2021-08-25) under `prd-tnm/StagedProducts/GeographicNames/Archive/`. To publish one of these as a release:
+A legacy dump is a GNIS export in the file format USGS used until 2021. USGS keeps these exports, up to 2021-08-25, under `prd-tnm/StagedProducts/GeographicNames/Archive/`. To publish one as a release:
 
-1. Stage the archived zips in `GNIS_INPUT_DIRECTORY`:
+1. Copy its zips into `GNIS_INPUT_DIRECTORY`:
    `MainDomestic/NationalFile.zip`, `TopicalGazetteers/AllNames.zip`,
    `TopicalGazetteers/Feature_Description_History.zip`, and
    `TopicalGazetteers/GOVT_UNITS.zip`.
-2. Run the ETL with `ARCHIVE_MODE=true` and `RELEASE_DATE=<vintage date>`
-   (e.g. `2021-08-25`).
+2. Run the ETL with `LEGACY_DUMP_DATE` set to the date of the export
+   (e.g. `2021-08-25`). The release is dated with that value.
 
-In archive mode the pipeline reads the old pipe-delimited formats(uppercase headers, two-letter state codes, `Y`/`N` official-name flags), emits `gnis:elevation` (which only the old vintages carry), and still harvests the crosswalks. The old vintages have no GeoPackage, so a backfill carries only the point geometries.
+The legacy file format differs from the current products in its file names, uppercase headers, two-letter state codes, and `Y`/`N` official-name flags. Legacy dumps include elevation, which is emitted as `gnis:elevation`. They have no GeoPackage, so their releases only have point geometries. The crosswalks are still harvested, and GraphDB is not reloaded.
 
 ## Configuration
 
@@ -57,7 +57,8 @@ In archive mode the pipeline reads the old pipe-delimited formats(uppercase head
 | `ARCHIVE_OUTPUT_DIRECTORY` | Where release dumps are published |
 | `SITE_BASE` | Public website base used for download URLs in the dataset metadata |
 | `DOWNLOAD_DATA` | Set `false` to reuse already-downloaded inputs |
-| `ARCHIVE_MODE` / `RELEASE_DATE` | Backfill an archived vintage |
+| `LEGACY_DUMP_DATE` | Build the release from the legacy dump with this date |
+| `RELEASE_DATE` | Date to put on the release instead of the time of the run |
 
 
 ## Developing

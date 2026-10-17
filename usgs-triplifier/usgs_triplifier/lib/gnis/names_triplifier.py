@@ -45,9 +45,9 @@ class NamesTriplifier:
             subject=self.get_subject,
             fields=field_mappings,
         )
-        # Run triplifier on the AllNames text zip: the modern topical zip, or
-        # the archived vintage (AllNames.zip) when backfilling
-        pattern = "AllNames*.zip" if config.archive_mode else "AllNames*_Text.zip"
+        # The current product is AllNames_National_Text.zip; legacy dumps
+        # name it AllNames.zip
+        pattern = "AllNames*.zip" if config.legacy_dump else "AllNames*_Text.zip"
         triplify_text_files(triples_config, pattern, "names")
 
     @staticmethod
@@ -150,8 +150,8 @@ class NamesTriplifier:
         if isinstance(is_official, (int, float)):
             return int(is_official) == 1
         else:
-            # Modern text files use "Official"/"Variant"; the archived
-            # vintages (through 2021) use "Y"/"N"
+            # The current products use "Official"/"Variant"; legacy dumps
+            # use "Y"/"N"
             return str(is_official).lower() in ("official", "y")
 
 
