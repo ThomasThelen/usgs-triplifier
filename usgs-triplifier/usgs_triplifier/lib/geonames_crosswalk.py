@@ -10,6 +10,7 @@ import pandas as pd
 import requests
 
 from ..config import config
+from ..states import States
 from .crosswalk import GEONAMES_REFERENCE_BASENAME, OWL_SAMEAS
 from .gnis.triplifier import normalize_feature_id
 
@@ -19,68 +20,6 @@ US_DUMP_BASENAME = "US.zip"
 # Where the QA step records the matches that disagree with the curated
 # Wikidata pairs.
 QA_REPORT_BASENAME = "geonames-qa-disagreements.csv"
-
-# GNIS carries full state names
-STATE_ABBREVIATIONS = {
-    "Alabama": "AL",
-    "Alaska": "AK",
-    "Arizona": "AZ",
-    "Arkansas": "AR",
-    "California": "CA",
-    "Colorado": "CO",
-    "Connecticut": "CT",
-    "Delaware": "DE",
-    "District of Columbia": "DC",
-    "Florida": "FL",
-    "Georgia": "GA",
-    "Hawaii": "HI",
-    "Idaho": "ID",
-    "Illinois": "IL",
-    "Indiana": "IN",
-    "Iowa": "IA",
-    "Kansas": "KS",
-    "Kentucky": "KY",
-    "Louisiana": "LA",
-    "Maine": "ME",
-    "Maryland": "MD",
-    "Massachusetts": "MA",
-    "Michigan": "MI",
-    "Minnesota": "MN",
-    "Mississippi": "MS",
-    "Missouri": "MO",
-    "Montana": "MT",
-    "Nebraska": "NE",
-    "Nevada": "NV",
-    "New Hampshire": "NH",
-    "New Jersey": "NJ",
-    "New Mexico": "NM",
-    "New York": "NY",
-    "North Carolina": "NC",
-    "North Dakota": "ND",
-    "Ohio": "OH",
-    "Oklahoma": "OK",
-    "Oregon": "OR",
-    "Pennsylvania": "PA",
-    "Rhode Island": "RI",
-    "South Carolina": "SC",
-    "South Dakota": "SD",
-    "Tennessee": "TN",
-    "Texas": "TX",
-    "Utah": "UT",
-    "Vermont": "VT",
-    "Virginia": "VA",
-    "Washington": "WA",
-    "West Virginia": "WV",
-    "Wisconsin": "WI",
-    "Wyoming": "WY",
-    "Puerto Rico": "PR",
-    "Guam": "GU",
-    "American Samoa": "AS",
-    "Virgin Islands": "VI",
-    "United States Virgin Islands": "VI",
-    "Northern Mariana Islands": "MP",
-    "Commonwealth of the Northern Mariana Islands": "MP",
-}
 
 # Word-level expansions applied during name normalization. Both gazetteers
 # abbreviate inconsistently ("St. Marys River" vs "Saint Marys River").
@@ -467,7 +406,7 @@ def _load_gnis() -> pd.DataFrame:
             "prim_long_dec": "lon",
         }
     )
-    gnis["state"] = gnis["state_name"].map(STATE_ABBREVIATIONS)
+    gnis["state"] = gnis["state_name"].map(States.CODES)
     return _with_known_coordinates(gnis)
 
 

@@ -96,7 +96,7 @@ def main() -> None:
     if build_retained(build_time) is not None:
         historical_path = export_historical(build_time)
     else:
-        logger.info("No previous release in the archive; nothing to retain")
+        logger.info("There is no previous release in the archive")
 
     logger.info("Writing dataset metadata")
     write_dataset_metadata(

@@ -1,10 +1,14 @@
 from datetime import datetime, timezone
 
 from rdflib import Graph, Literal, URIRef
-from rdflib.namespace import DCAT, DCTERMS, PROV, VOID, RDF
+from rdflib.namespace import DCAT, DCTERMS, PROV, VOID, RDF, XSD
 
 from usgs_triplifier.config import config
-from usgs_triplifier.lib.dataset_downloader import GPKG_KEY, TEXT_DATASETS
+from usgs_triplifier.lib.dataset_downloader import (
+    GPKG_KEY,
+    LEGACY_DATASETS,
+    TEXT_DATASETS,
+)
 from usgs_triplifier.lib.dataset_metadata import (
     METADATA_BASENAME,
     build_id_for,
@@ -60,6 +64,16 @@ def test_release_records_sources_and_pipeline(data_dirs):
     assert (activities[0], RDF.type, PROV.Activity) in graph
 
 
+def test_legacy_dump_release_records_the_legacy_sources(data_dirs, monkeypatch):
+    _, output_dir = data_dirs
+    monkeypatch.setattr(config, "legacy_dump_date", "2021-08-25")
+    graph = _write_and_parse(output_dir)
+    release = URIRef(f"{config.lod_base}/gnis/release/{BUILD_ID}")
+
+    sources = {str(s) for s in graph.objects(release, DCTERMS.source)}
+    assert sources == {f"https://prd-tnm.s3.amazonaws.com/{k}" for k in LEGACY_DATASETS}
+
+
 def test_distributions_describe_output_files(data_dirs):
     _, output_dir = data_dirs
     (output_dir / "features.nt.gz").write_text("# features")
@@ -110,7 +124,7 @@ def test_archived_releases_are_redescribed_every_build(data_dirs, tmp_path):
     prior = URIRef(f"{config.lod_base}/gnis/release/260401")
     assert (dataset, DCTERMS.hasVersion, prior) in graph
     assert (prior, DCTERMS.isVersionOf, dataset) in graph
-    assert (prior, DCTERMS.issued, Literal("2026-04-02")) in graph
+    assert (prior, DCTERMS.issued, Literal("2026-04-02", datatype=XSD.date)) in graph
     downloads = {str(d) for d in graph.objects(prior, DCAT.distribution)}
     assert downloads == {
         f"{config.site_base}/archive/gnis-ld-260401.nt.gz",

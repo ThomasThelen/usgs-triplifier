@@ -138,21 +138,15 @@ class NamesTriplifier:
     @staticmethod
     def _is_official(row: dict) -> bool:
         """
-        Check if the name is official based on the row data.
+        Checks whether the row's name is the feature's official name.
 
-        Handles both text file format ("Official"/"Variant") and
-        GPKG format (1/0).
+        The current products mark names "Official" or "Variant"; legacy
+        dumps mark them "Y" or "N".
 
-        :param row: Dictionary representing a row.
+        :param row: Dictionary representing a source row.
         :return: True if official name, False if variant.
         """
-        is_official = row.get("feature_name_official")
-        if isinstance(is_official, (int, float)):
-            return int(is_official) == 1
-        else:
-            # The current products use "Official"/"Variant"; legacy dumps
-            # use "Y"/"N"
-            return str(is_official).lower() in ("official", "y")
+        return row.get("feature_name_official", "").lower() in ("official", "y")
 
 
 def main():

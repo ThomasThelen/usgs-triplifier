@@ -18,10 +18,19 @@ class GraphDBAdapter:
 
     def set_password(self):
         """
-        Set a new password for the administrator account.
+        Sets the GDB_USER password to GDB_PASS.
+
+        :raises requests.HTTPError: If GraphDB rejects the password change.
         """
+        user_url = (
+            f"{self.base_url}/rest/security/users/{config.graphdb_admin_username}"
+        )
+        if requests.get(user_url, auth=self.auth).status_code == 200:
+            self.logger.info("The GraphDB admin password is already set.")
+            return
+
         response = requests.patch(
-            f"{self.base_url}/rest/security/users/{config.graphdb_admin_username}",
+            user_url,
             json={
                 "password": config.graphdb_admin_password,
             },
@@ -29,7 +38,7 @@ class GraphDBAdapter:
             auth=(config.graphdb_admin_username, config.graphdb_default_password),
         )
         response.raise_for_status()
-        self.logger.info("Set the GraphDB admin password.")
+        self.logger.info("The GraphDB admin password was set.")
 
     def enable_security(self):
         """
@@ -118,7 +127,11 @@ class GraphDBAdapter:
     def copy_triples(self):
         """Copies the triples that are generated to GRAPHDB_IMPORT_DIRECTORY"""
         self.graphdb_import_path.mkdir(parents=True, exist_ok=True)
-        # The gzipped N-Triples dumps plus the small Turtle metadata file
+
+        for pattern in ("*.nt.gz", "*.ttl"):
+            for stale in self.graphdb_import_path.glob(pattern):
+                stale.unlink()
+
         file_paths = list(self.rdf_output_path.glob("*.nt.gz")) + list(
             self.rdf_output_path.glob("*.ttl")
         )
@@ -130,9 +143,6 @@ class GraphDBAdapter:
         copied = []
         for file_path in file_paths:
             dest = self.graphdb_import_path / file_path.name
-            # Remove existing file if it exists
-            if dest.exists():
-                dest.unlink()
             shutil.copy2(file_path, dest)
             copied.append(file_path.name)
             self.logger.info(f"Copied {file_path.name} to {dest}")

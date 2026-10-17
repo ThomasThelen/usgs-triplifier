@@ -13,6 +13,7 @@ from .triplifier import (
     normalize_feature_id,
 )
 from ...config import config
+from ...states import States
 
 # Class name mappings
 GNIS_CLASS_MAPPINGS = {
@@ -22,74 +23,6 @@ GNIS_CLASS_MAPPINGS = {
     "Oilfield": "OilField",
     "Civil": "CivilGovernment",
     "Pillar": "Rock",
-}
-
-# Legacy dumps give the state as a two-letter STATE_ALPHA code, while the
-# current products give the full state name. Feature-alias and gnis:state
-# URIs are built from the full name, so the codes are expanded to the exact
-# spellings the current products use (e.g. gnisf-alias:United_States_Virgin_Islands).
-LEGACY_STATE_NAMES = {
-    "AL": "Alabama",
-    "AK": "Alaska",
-    "AZ": "Arizona",
-    "AR": "Arkansas",
-    "CA": "California",
-    "CO": "Colorado",
-    "CT": "Connecticut",
-    "DE": "Delaware",
-    "DC": "District of Columbia",
-    "FL": "Florida",
-    "GA": "Georgia",
-    "HI": "Hawaii",
-    "ID": "Idaho",
-    "IL": "Illinois",
-    "IN": "Indiana",
-    "IA": "Iowa",
-    "KS": "Kansas",
-    "KY": "Kentucky",
-    "LA": "Louisiana",
-    "ME": "Maine",
-    "MD": "Maryland",
-    "MA": "Massachusetts",
-    "MI": "Michigan",
-    "MN": "Minnesota",
-    "MS": "Mississippi",
-    "MO": "Missouri",
-    "MT": "Montana",
-    "NE": "Nebraska",
-    "NV": "Nevada",
-    "NH": "New Hampshire",
-    "NJ": "New Jersey",
-    "NM": "New Mexico",
-    "NY": "New York",
-    "NC": "North Carolina",
-    "ND": "North Dakota",
-    "OH": "Ohio",
-    "OK": "Oklahoma",
-    "OR": "Oregon",
-    "PA": "Pennsylvania",
-    "RI": "Rhode Island",
-    "SC": "South Carolina",
-    "SD": "South Dakota",
-    "TN": "Tennessee",
-    "TX": "Texas",
-    "UT": "Utah",
-    "VT": "Vermont",
-    "VA": "Virginia",
-    "WA": "Washington",
-    "WV": "West Virginia",
-    "WI": "Wisconsin",
-    "WY": "Wyoming",
-    "PR": "Puerto Rico",
-    "GU": "Guam",
-    "AS": "American Samoa",
-    "VI": "United States Virgin Islands",
-    "MP": "Northern Mariana Islands",
-    "UM": "U.S. Minor Outlying Islands",
-    # Compact-of-free-association states, which only appear in legacy dumps
-    "FM": "Federated States of Micronesia",
-    "MH": "Marshall Islands",
-    "PW": "Palau",
 }
 
 # Track feature aliases for disambiguation
@@ -168,7 +101,7 @@ class FeaturesTriplifier:
         # both see the full name)
         if not row.get("state_name") and row.get("state_alpha"):
             alpha = str(row["state_alpha"])
-            row["state_name"] = LEGACY_STATE_NAMES.get(alpha, alpha)
+            row["state_name"] = States.name_for(alpha) or alpha
 
         # Get and normalize class name
         feature_class = str(row.get("feature_class", "")).replace(" ", "")
@@ -188,9 +121,6 @@ class FeaturesTriplifier:
             feature_aliases[alias_id].append(feature_id)
         else:
             feature_aliases[alias_id] = [feature_id]
-
-        # Store class for later use
-        row["_class"] = feature_class
 
         return f"gnisf:{feature_id}"
 
@@ -295,16 +225,9 @@ class FeaturesTriplifier:
         :param graph: RDF graph (unused but required by interface).
         :return: Dictionary with nested blank node properties or None if no elevation.
         """
-        if not value or value == "" or value == "0":
+        elev_value = value.strip()
+        if not elev_value or elev_value == "0":
             return None
-
-        # Handle numeric values
-        if isinstance(value, (int, float)):
-            elev_value = str(int(value))
-        else:
-            elev_value = str(value).strip()
-            if not elev_value:
-                return None
 
         return {
             "gnis:elevation": {

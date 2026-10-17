@@ -97,8 +97,9 @@ def _names_config():
     )
 
 
-def test_is_official_handles_both_formats():
+def test_is_official_accepts_current_and_legacy_flags():
     assert NamesTriplifier._is_official({"feature_name_official": "Official"})
     assert not NamesTriplifier._is_official({"feature_name_official": "Variant"})
-    assert NamesTriplifier._is_official({"feature_name_official": 1})
-    assert not NamesTriplifier._is_official({"feature_name_official": 0})
+    assert NamesTriplifier._is_official({"feature_name_official": "Y"})
+    assert not NamesTriplifier._is_official({"feature_name_official": "N"})
+    assert not NamesTriplifier._is_official({})

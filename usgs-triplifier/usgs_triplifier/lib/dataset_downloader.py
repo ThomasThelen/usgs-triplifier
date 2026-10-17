@@ -18,11 +18,16 @@ TEXT_DATASETS = [
     "StagedProducts/GeographicNames/Topical/FeatureDescriptionHistory_National_Text.zip",
 ]
 
+# Locations of the legacy dump files
+LEGACY_DATASETS = [
+    "StagedProducts/GeographicNames/Archive/MainDomestic/NationalFile.zip",
+    "StagedProducts/GeographicNames/Archive/TopicalGazetteers/AllNames.zip",
+    "StagedProducts/GeographicNames/Archive/TopicalGazetteers/GOVT_UNITS.zip",
+    "StagedProducts/GeographicNames/Archive/TopicalGazetteers/Feature_Description_History.zip",
+]
+
 
 class DatasetDownloader:
-    def __init__(self):
-        pass
-
     @staticmethod
     def download():
         """
@@ -39,25 +44,6 @@ class DatasetDownloader:
         for key in TEXT_DATASETS:
             DatasetDownloader._download_file(s3, key, download_dir)
 
-        print("Done!")
-
-    @staticmethod
-    def download_gpkg():
-        """Downloads only the GPKG dataset."""
-        download_dir = config.input_directory
-        download_dir.mkdir(parents=True, exist_ok=True)
-        s3 = boto3.client("s3", config=BotoConfig(signature_version=UNSIGNED))
-        DatasetDownloader._download_file(s3, GPKG_KEY, download_dir)
-        print("Done!")
-
-    @staticmethod
-    def download_text():
-        """Downloads only the text datasets."""
-        download_dir = config.input_directory
-        download_dir.mkdir(parents=True, exist_ok=True)
-        s3 = boto3.client("s3", config=BotoConfig(signature_version=UNSIGNED))
-        for key in TEXT_DATASETS:
-            DatasetDownloader._download_file(s3, key, download_dir)
         print("Done!")
 
     @staticmethod

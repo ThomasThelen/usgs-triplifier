@@ -8,7 +8,7 @@ from rdflib import BNode, Graph, Literal, URIRef
 from rdflib.namespace import DCAT, DCTERMS, PROV, RDF, RDFS, VOID, XSD
 
 from ..config import config
-from .dataset_downloader import BUCKET, GPKG_KEY, TEXT_DATASETS
+from .dataset_downloader import BUCKET, GPKG_KEY, LEGACY_DATASETS, TEXT_DATASETS
 
 S3_BASE = f"https://{BUCKET}.s3.amazonaws.com"
 
@@ -102,8 +102,8 @@ def write_dataset_metadata(
     graph.add((activity, RDF.type, PROV.Activity))
     graph.add((activity, RDFS.label, Literal(f"usgs-triplifier {_pipeline_version()}")))
 
-    # Upstream sources
-    for key in [GPKG_KEY, *TEXT_DATASETS]:
+    sources = LEGACY_DATASETS if config.legacy_dump else [GPKG_KEY, *TEXT_DATASETS]
+    for key in sources:
         graph.add((release_uri, DCTERMS.source, URIRef(f"{S3_BASE}/{key}")))
 
     # The published release dump and its historical companion (records
@@ -170,7 +170,11 @@ def _add_archived_releases(graph: Graph, dataset_uri: URIRef, skip_id: str) -> N
         graph.add((release_uri, DCTERMS.isVersionOf, dataset_uri))
         graph.add((release_uri, DCTERMS.identifier, Literal(release_id)))
         graph.add(
-            (release_uri, DCTERMS.issued, Literal(_published(dump_path, release_id)))
+            (
+                release_uri,
+                DCTERMS.issued,
+                Literal(_published(dump_path, release_id), datatype=XSD.date),
+            )
         )
 
         historical = dump_path.with_name(f"gnis-ld-historical-{release_id}.nt.gz")
