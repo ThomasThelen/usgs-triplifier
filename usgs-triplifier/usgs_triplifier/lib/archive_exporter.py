@@ -1,102 +1,111 @@
 import gzip
 import json
 import shutil
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
-from ..config import config
+from ..config import Config
 from ..output_files import OutputFiles
-from .dataset_metadata import build_id_for
 
 
-def export_release(build_time: datetime | None = None) -> Path:
+class ReleaseExporter:
     """
-    Publish the build as a release dump in the archive directory.
+    Writes a release's files to the archive output directory.
 
-    Concatenates the generated N-Triples files into a single gzipped dump
-    named gnis-ld-<yymmdd>.nt.gz, with a <name>.meta.json sidecar
-    carrying the display fields (id, published, triples, size) the website's
-    archive scanner reads. Dropping these two files into the archive volume
-    is the entire release-publishing handoff: the website derives its
-    downloads page, release manifest, and VoID release records from them.
-
-    The dump is a faithful conversion of the current upstream sources only;
-    records retained for dropped features are published separately by
-    export_historical.
-
-    :param build_time: Timestamp identifying the build; defaults to now (UTC).
-    :return: Path of the written dump.
+    Each release file comes with a gnis-ld-<yymmdd>.meta.json beside it with its
+    id, publication date, triple count and size.
     """
-    build_time = build_time or datetime.now(timezone.utc)
-    build_id = build_id_for(build_time)
 
-    archive_dir = config.archive_output_directory
-    archive_dir.mkdir(parents=True, exist_ok=True)
-    dump_path = archive_dir / OutputFiles.release(build_id)
+    def __init__(self, config: Config):
+        """
+        Creates the exporter.
 
-    n_triples = 0
-    with gzip.open(dump_path, "wt", encoding="utf-8") as out:
-        # The generated files are already deduplicated N-Triples, so the
-        # export is a pure streaming concatenation.
-        for nt_path in sorted(config.output_directory.glob("*.nt.gz")):
-            if nt_path.name == OutputFiles.RETAINED:
-                continue
-            with gzip.open(nt_path, "rt", encoding="utf-8") as f:
-                for line in f:
-                    out.write(line)
-                    n_triples += 1
+        :param config: Settings holding the output and archive output directories.
+        """
+        self.config = config
 
-    _write_sidecar(dump_path, build_time, n_triples)
-    return dump_path
+    def export_release(self, build_time: datetime) -> Path:
+        """
+        Writes the release file, gnis-ld-<yymmdd>.nt.gz.
 
+        :param build_time: Time the release is dated with.
+        :return: Path of the release file.
+        """
+        release_id = OutputFiles.release_id(build_time)
+        path = self._archive_dir() / OutputFiles.release(release_id)
 
-def export_historical(build_time: datetime | None = None) -> Path:
-    """
-    Publish the retained records as this release's historical companion dump.
+        triples = 0
+        with gzip.open(path, "wt", encoding="utf-8") as out:
+            # Concatenate the generated files, except retained-features.nt.gz,
+            # into the release file, counting one triple per line
+            for nt_path in sorted(self.config.output_directory.glob("*.nt.gz")):
+                if nt_path.name == OutputFiles.RETAINED:
+                    continue
+                with gzip.open(nt_path, "rt", encoding="utf-8") as f:
+                    for line in f:
+                        out.write(line)
+                        triples += 1
 
-    Copies the retained-features dump (written by retention.build_retained)
-    into the archive as gnis-ld-historical-<yymmdd>.nt.gz with the same
-    sidecar contract as the main dump, so the website can pair the two by
-    their shared YYMMDD id.
+        self._write_sidecar(path, build_time, triples)
+        return path
 
-    :param build_time: Timestamp identifying the build; defaults to now (UTC).
-    :return: Path of the written dump.
-    """
-    build_time = build_time or datetime.now(timezone.utc)
-    build_id = build_id_for(build_time)
+    def export_historical(self, build_time: datetime) -> Path:
+        """
+        Writes the historical release file, gnis-ld-historical-<yymmdd>.nt.gz.
 
-    archive_dir = config.archive_output_directory
-    archive_dir.mkdir(parents=True, exist_ok=True)
-    dump_path = archive_dir / OutputFiles.historical_release(build_id)
+        :param build_time: Time the release is dated with.
+        :return: Path of the historical release file.
+        :raises FileNotFoundError: If retained-features.nt.gz has not been written.
+        """
+        release_id = OutputFiles.release_id(build_time)
+        path = self._archive_dir() / OutputFiles.historical_release(release_id)
 
-    retained_path = config.output_directory / OutputFiles.RETAINED
-    n_triples = 0
-    with gzip.open(retained_path, "rt", encoding="utf-8") as f:
-        for line in f:
-            if line.strip():
-                n_triples += 1
-    shutil.copyfile(retained_path, dump_path)
+        retained_path = self.config.output_directory / OutputFiles.RETAINED
+        with gzip.open(retained_path, "rt", encoding="utf-8") as f:
+            triples = sum(1 for line in f if line.strip())
+        shutil.copyfile(retained_path, path)
 
-    _write_sidecar(dump_path, build_time, n_triples)
-    return dump_path
+        self._write_sidecar(path, build_time, triples)
+        return path
 
+    def _archive_dir(self) -> Path:
+        """
+        Returns the archive output directory, creating it if missing.
 
-def _write_sidecar(dump_path: Path, build_time: datetime, n_triples: int) -> None:
-    """Write the .meta.json display fields the website's scanner reads."""
-    sidecar = {
-        "id": build_id_for(build_time),
-        "published": build_time.date().isoformat(),
-        "triples": f"{n_triples:,}",
-        "size": _format_size(dump_path.stat().st_size),
-    }
-    sidecar_path = OutputFiles.sidecar_for(dump_path)
-    sidecar_path.write_text(json.dumps(sidecar, indent=2) + "\n")
+        :return: The directory.
+        """
+        archive_dir = self.config.archive_output_directory
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        return archive_dir
 
+    def _write_sidecar(self, path: Path, build_time: datetime, triples: int) -> None:
+        """
+        Writes the .meta.json file the website reads for a release file.
 
-def _format_size(n_bytes: int) -> str:
-    """Human-readable size, matching the website's own formatting."""
-    if n_bytes >= 1e9:
-        return f"{n_bytes / 1e9:.1f} GB"
-    if n_bytes >= 1e6:
-        return f"{n_bytes / 1e6:.1f} MB"
-    return f"{max(1, round(n_bytes / 1e3))} KB"
+        :param path: Release file the JSON describes.
+        :param build_time: Time the release is dated with.
+        :param triples: Number of triples in the release file.
+        """
+        sidecar = {
+            "id": OutputFiles.release_id(build_time),
+            "published": build_time.date().isoformat(),
+            "triples": f"{triples:,}",
+            "size": self.format_size(path.stat().st_size),
+        }
+        OutputFiles.sidecar_for(path).write_text(json.dumps(sidecar, indent=2) + "\n")
+
+    @staticmethod
+    def format_size(n_bytes: int) -> str:
+        """
+        Formats a file size the way the website does (format_size in
+        gnis-ld.org's lib/js/server.ts): decimal units, one decimal place for
+        MB and GB, at least 1 KB.
+
+        :param n_bytes: Size in bytes.
+        :return: The size, e.g. "3.5 MB".
+        """
+        if n_bytes >= 1e9:
+            return f"{n_bytes / 1e9:.1f} GB"
+        if n_bytes >= 1e6:
+            return f"{n_bytes / 1e6:.1f} MB"
+        return f"{max(1, round(n_bytes / 1e3))} KB"

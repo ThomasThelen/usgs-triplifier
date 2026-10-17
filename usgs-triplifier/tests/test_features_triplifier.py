@@ -4,7 +4,6 @@ from rdflib import Graph, Literal, URIRef
 from rdflib.namespace import OWL, XSD
 
 from conftest import make_text_zip, parse_nt_gz
-from usgs_triplifier.config import config
 from usgs_triplifier.lib.gnis.features_triplifier import FeaturesTriplifier
 
 # The columns the triplifier reads, plus elev_in_ft to show it is ignored
@@ -38,11 +37,11 @@ def _features_zip(input_dir: Path) -> Path:
     )
 
 
-def test_features_end_to_end(data_dirs, monkeypatch):
+def test_features_end_to_end(data_dirs, monkeypatch, config):
     input_dir, output_dir = data_dirs
     _features_zip(input_dir)
 
-    FeaturesTriplifier().run()
+    FeaturesTriplifier(config).run()
 
     graph = parse_nt_gz(output_dir / "features.nt.gz")
 
@@ -102,8 +101,8 @@ def test_features_end_to_end(data_dirs, monkeypatch):
     ]
 
 
-def test_state_and_county_object_edge_cases():
-    ft = FeaturesTriplifier()
+def test_state_and_county_object_edge_cases(config):
+    ft = FeaturesTriplifier(config)
     gnisf_alias = config.prefix_list["gnisf-alias"]
     assert ft.state_object("New York", {}) == gnisf_alias["New_York"]
     assert ft.county_object("", {}) == config.prefix_list["gnis"]["UnknownCounty"]
@@ -113,8 +112,8 @@ def test_state_and_county_object_edge_cases():
     )
 
 
-def test_prim_lat_dec_field_guards():
-    ft = FeaturesTriplifier()
+def test_prim_lat_dec_field_guards(config):
+    ft = FeaturesTriplifier(config)
     assert ft.prim_lat_dec_field("", {"feature_id": "1"}, Graph()) is None
     assert ft.prim_lat_dec_field("0.0", {"feature_id": "1"}, Graph()) is None
     assert ft.prim_lat_dec_field("0", {"feature_id": "1"}, Graph()) is None
@@ -131,8 +130,8 @@ def test_prim_lat_dec_field_guards():
     }
 
 
-def test_elev_in_ft_field_guards():
-    ft = FeaturesTriplifier()
+def test_elev_in_ft_field_guards(config):
+    ft = FeaturesTriplifier(config)
     assert ft.elev_in_ft_field("", {}, Graph()) is None
     assert ft.elev_in_ft_field("0", {}, Graph()) is None
     assert ft.elev_in_ft_field("  ", {}, Graph()) is None
@@ -145,11 +144,11 @@ def test_elev_in_ft_field_guards():
     }
 
 
-def test_current_sources_omit_elevation(data_dirs, monkeypatch):
+def test_current_sources_omit_elevation(data_dirs, monkeypatch, config):
     input_dir, output_dir = data_dirs
     _features_zip(input_dir)
 
-    FeaturesTriplifier().run()
+    FeaturesTriplifier(config).run()
 
     graph = parse_nt_gz(output_dir / "features.nt.gz")
     gnis = config.prefix_list["gnis"]

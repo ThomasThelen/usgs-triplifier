@@ -8,11 +8,16 @@ import pytest
 import shapely
 from rdflib import Graph
 
-from usgs_triplifier.config import config
+from usgs_triplifier.config import Config
 
 
-def parse_nt_gz(path):
-    """Parse a gzipped N-Triples output file into a Graph for assertions."""
+def parse_nt_gz(path: Path) -> Graph:
+    """
+    Parses a gzipped N-Triples file into a Graph for assertions.
+
+    :param path: Gzipped N-Triples file.
+    :return: Graph holding the file's triples.
+    """
     graph = Graph()
     with gzip.open(path, "rt", encoding="utf-8") as f:
         graph.parse(f, format="nt")
@@ -20,17 +25,33 @@ def parse_nt_gz(path):
 
 
 @pytest.fixture()
-def data_dirs(tmp_path, monkeypatch):
-    """Point the shared config singleton at per-test input/output directories."""
-    input_dir = tmp_path / "input"
-    output_dir = tmp_path / "output"
-    input_dir.mkdir()
-    output_dir.mkdir()
-    monkeypatch.setattr(config, "input_directory", input_dir)
-    monkeypatch.setattr(config, "output_directory", output_dir)
-    # Isolate the archive too (not created: code that needs it mkdirs it)
-    monkeypatch.setattr(config, "archive_output_directory", tmp_path / "archive")
-    return input_dir, output_dir
+def config(tmp_path: Path) -> Config:
+    """
+    Builds settings whose input, output and archive directories are inside
+    the test's temporary directory.
+
+    :param tmp_path: pytest temporary directory.
+    :return: The settings.
+    """
+    settings = Config(
+        input_directory=tmp_path / "input",
+        output_directory=tmp_path / "output",
+        archive_output_directory=tmp_path / "archive",
+    )
+    settings.input_directory.mkdir()
+    settings.output_directory.mkdir()
+    return settings
+
+
+@pytest.fixture()
+def data_dirs(config: Config) -> tuple[Path, Path]:
+    """
+    Returns the test's input and output directories.
+
+    :param config: The test's settings.
+    :return: (input directory, output directory).
+    """
+    return config.input_directory, config.output_directory
 
 
 def make_gpkg_zip(

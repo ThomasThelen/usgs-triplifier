@@ -4,9 +4,8 @@ import zipfile
 
 import requests
 
-from usgs_triplifier.config import config
 from usgs_triplifier.lib import census_crosswalk
-from usgs_triplifier.lib.census_crosswalk import build_census_crosswalk
+from usgs_triplifier.lib.census_crosswalk import CensusCrosswalk
 from usgs_triplifier.output_files import OutputFiles
 
 # 2025+ vintages are pipe-delimited with a GEOIDFQ column
@@ -37,7 +36,7 @@ class FakeResponse:
         pass
 
 
-def test_ansi_codes_join_to_geoids(data_dirs, monkeypatch):
+def test_ansi_codes_join_to_geoids(data_dirs, monkeypatch, config):
     _, output_dir = data_dirs
     responses = {
         "counties": FakeResponse(
@@ -51,7 +50,7 @@ def test_ansi_codes_join_to_geoids(data_dirs, monkeypatch):
         lambda url, **kw: responses["counties" if "counties" in url else "place"],
     )
 
-    path = build_census_crosswalk()
+    path = CensusCrosswalk(config).build()
 
     assert path == output_dir / OutputFiles.CENSUS_CROSSWALK
     with gzip.open(path, "rt", encoding="utf-8") as f:
@@ -69,9 +68,9 @@ def test_ansi_codes_join_to_geoids(data_dirs, monkeypatch):
     assert len(lines) == 4  # the non-numeric ANSI row is skipped
 
 
-def test_unreachable_gazetteer_is_not_fatal(data_dirs, monkeypatch):
+def test_unreachable_gazetteer_is_not_fatal(data_dirs, monkeypatch, config):
     def boom(*a, **kw):
         raise requests.ConnectionError("census is down")
 
     monkeypatch.setattr(census_crosswalk.requests, "get", boom)
-    assert build_census_crosswalk() is None
+    assert CensusCrosswalk(config).build() is None

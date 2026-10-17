@@ -6,27 +6,34 @@ from pydantic_settings import BaseSettings
 from rdflib import Namespace
 
 
-_default_data_dir = Path(__file__).parent.parent / "data"
-
-
 class Config(BaseSettings):
+    """
+    Settings for the triplifiers, crosswalks and release steps, read from
+    environment variables (the field aliases) with the defaults below.
+    """
+
+    # Directory the default input, output and archive directories are in
+    DATA_DIR: ClassVar[Path] = Path(__file__).parent.parent / "data"
+
+    # Base IRI of the gnis:, gnisf:, gnisf-alias:, usgs: and nhd: namespaces
     lod_base: str = Field(default="http://gnis-ld.org/lod", alias="LOD_BASE")
+    # Base IRI of the usgeo-* geometry namespaces
     geo_base: str = Field(default="http://gnis-ld.org/geometry", alias="GEO_BASE")
 
     # Input directory for downloaded GNIS data
     input_directory: Path = Field(
-        default=_default_data_dir / "geographic_names", alias="GNIS_INPUT_DIRECTORY"
+        default=DATA_DIR / "geographic_names", alias="GNIS_INPUT_DIRECTORY"
     )
 
     # Output directory for generated RDF files
     output_directory: Path = Field(
-        default=_default_data_dir / "output" / "gnis", alias="RDF_OUTPUT_DIRECTORY"
+        default=DATA_DIR / "output" / "gnis", alias="RDF_OUTPUT_DIRECTORY"
     )
 
     # Directory the release dump (gnis-ld-<yymmdd>.nt.gz + .meta.json sidecar)
     # is exported to; the website serves this directory at /archive
     archive_output_directory: Path = Field(
-        default=_default_data_dir / "archive", alias="ARCHIVE_OUTPUT_DIRECTORY"
+        default=DATA_DIR / "archive", alias="ARCHIVE_OUTPUT_DIRECTORY"
     )
 
     # Public website base URL, used for release download links in metadata
@@ -128,6 +135,3 @@ class Config(BaseSettings):
         }
 
     model_config = {"populate_by_name": True}
-
-
-config = Config()

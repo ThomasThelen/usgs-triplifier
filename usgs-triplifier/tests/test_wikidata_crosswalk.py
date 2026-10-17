@@ -2,9 +2,8 @@ import gzip
 
 import requests
 
-from usgs_triplifier.config import config
-from usgs_triplifier.lib import crosswalk
-from usgs_triplifier.lib.crosswalk import build_crosswalk
+from usgs_triplifier.lib import wikidata_crosswalk
+from usgs_triplifier.lib.wikidata_crosswalk import WikidataCrosswalk
 from usgs_triplifier.output_files import OutputFiles
 
 WD = "http://www.wikidata.org/entity"
@@ -40,7 +39,7 @@ class FakeResponse:
         pass
 
 
-def test_harvest_writes_ntriples_links(data_dirs, monkeypatch):
+def test_harvest_writes_ntriples_links(data_dirs, monkeypatch, config):
     _, output_dir = data_dirs
     bindings = [
         _binding(
@@ -56,10 +55,10 @@ def test_harvest_writes_ntriples_links(data_dirs, monkeypatch):
         _binding("Q777", "not-a-gnis-id"),
     ]
     monkeypatch.setattr(
-        crosswalk.requests, "post", lambda *a, **kw: FakeResponse(bindings)
+        wikidata_crosswalk.requests, "post", lambda *a, **kw: FakeResponse(bindings)
     )
 
-    path = build_crosswalk()
+    path = WikidataCrosswalk(config).build()
 
     assert path == output_dir / OutputFiles.WIKIDATA_CROSSWALK
     with gzip.open(path, "rt", encoding="utf-8") as f:
@@ -98,11 +97,11 @@ def test_harvest_writes_ntriples_links(data_dirs, monkeypatch):
     assert not any("Q777" in line for line in lines)
 
 
-def test_harvest_failure_is_not_fatal(data_dirs, monkeypatch):
+def test_harvest_failure_is_not_fatal(data_dirs, monkeypatch, config):
     def boom(*a, **kw):
         raise requests.ConnectionError("no route to wikidata")
 
-    monkeypatch.setattr(crosswalk.requests, "post", boom)
-    monkeypatch.setattr(crosswalk.time, "sleep", lambda *_: None)
-    assert build_crosswalk() is None
+    monkeypatch.setattr(wikidata_crosswalk.requests, "post", boom)
+    monkeypatch.setattr(wikidata_crosswalk.time, "sleep", lambda *_: None)
+    assert WikidataCrosswalk(config).build() is None
     assert not (config.output_directory / OutputFiles.WIKIDATA_CROSSWALK).exists()

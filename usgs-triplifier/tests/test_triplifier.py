@@ -2,7 +2,6 @@ import pytest
 from rdflib import BNode, Graph, Literal, URIRef
 
 from conftest import make_text_zip, parse_nt_gz
-from usgs_triplifier.config import config
 from usgs_triplifier.lib.gnis.identifiers import FeatureIds
 from usgs_triplifier.lib.gnis.rdf import NTriplesWriter, Terms
 from usgs_triplifier.lib.gnis.text_source import TextSource
@@ -63,36 +62,51 @@ def test_alias_part_replaces_non_word_characters():
     assert FeatureIds.alias_part("word") == "word"
 
 
-def test_parse_object_notations():
-    assert Terms.parse_object(">http://example.org/x") == URIRef("http://example.org/x")
-    assert Terms.parse_object('"hello') == Literal("hello")
-    assert Terms.parse_object('@en"hello') == Literal("hello", lang="en")
-    assert Terms.parse_object('^xsd:double"1.5') == Literal("1.5", datatype=XSD_DOUBLE)
+def test_parse_object_notations(config):
+    assert Terms(config.prefix_list).parse_object(">http://example.org/x") == URIRef(
+        "http://example.org/x"
+    )
+    assert Terms(config.prefix_list).parse_object('"hello') == Literal("hello")
+    assert Terms(config.prefix_list).parse_object('@en"hello') == Literal(
+        "hello", lang="en"
+    )
+    assert Terms(config.prefix_list).parse_object('^xsd:double"1.5') == Literal(
+        "1.5", datatype=XSD_DOUBLE
+    )
     gnis = config.prefix_list["gnis"]
-    assert Terms.parse_object("gnis:Thing") == gnis["Thing"]
-    assert Terms.parse_object("plain value") == Literal("plain value")
+    assert Terms(config.prefix_list).parse_object("gnis:Thing") == gnis["Thing"]
+    assert Terms(config.prefix_list).parse_object("plain value") == Literal(
+        "plain value"
+    )
 
 
-def test_resolve_iri():
-    assert Terms.resolve_iri(">http://example.org/a") == URIRef("http://example.org/a")
-    assert Terms.resolve_iri("gnisf:123") == config.prefix_list["gnisf"]["123"]
-    assert Terms.resolve_iri("unknown:thing") == URIRef("unknown:thing")
-    assert Terms.resolve_iri("nocolon") == URIRef("nocolon")
+def test_resolve_iri(config):
+    assert Terms(config.prefix_list).resolve_iri(">http://example.org/a") == URIRef(
+        "http://example.org/a"
+    )
+    assert (
+        Terms(config.prefix_list).resolve_iri("gnisf:123")
+        == config.prefix_list["gnisf"]["123"]
+    )
+    assert Terms(config.prefix_list).resolve_iri("unknown:thing") == URIRef(
+        "unknown:thing"
+    )
+    assert Terms(config.prefix_list).resolve_iri("nocolon") == URIRef("nocolon")
 
 
-def test_add_object_literal_string_and_uri():
+def test_add_object_literal_string_and_uri(config):
     g = Graph()
-    Terms.add_object(g, S, P, Literal("x"))
-    Terms.add_object(g, S, P, '"y')
-    Terms.add_object(g, S, P, URIRef("http://example.org/o"))
+    Terms(config.prefix_list).add_object(g, S, P, Literal("x"))
+    Terms(config.prefix_list).add_object(g, S, P, '"y')
+    Terms(config.prefix_list).add_object(g, S, P, URIRef("http://example.org/o"))
     assert (S, P, Literal("x")) in g
     assert (S, P, Literal("y")) in g
     assert (S, P, URIRef("http://example.org/o")) in g
 
 
-def test_add_object_dict_becomes_blank_node():
+def test_add_object_dict_becomes_blank_node(config):
     g = Graph()
-    Terms.add_object(
+    Terms(config.prefix_list).add_object(
         g, S, P, {"qudt:numericValue": ['^xsd:double"5280'], "qudt:unit": ["unit:FT"]}
     )
     nodes = list(g.objects(S, P))
@@ -106,17 +120,17 @@ def test_add_object_dict_becomes_blank_node():
     ]
 
 
-def test_add_object_unsupported_type_is_skipped(caplog):
+def test_add_object_unsupported_type_is_skipped(caplog, config):
     g = Graph()
     with caplog.at_level("WARNING"):
-        Terms.add_object(g, S, P, 42)
+        Terms(config.prefix_list).add_object(g, S, P, 42)
     assert len(g) == 0
     assert "unsupported object type" in caplog.text
 
 
-def test_add_pairs_wraps_scalars():
+def test_add_pairs_wraps_scalars(config):
     g = Graph()
-    Terms.add_pairs(g, S, {"rdfs:label": '"single'})
+    Terms(config.prefix_list).add_pairs(g, S, {"rdfs:label": '"single'})
     assert list(g.objects(S, config.prefix_list["rdfs"]["label"])) == [
         Literal("single")
     ]
@@ -136,7 +150,7 @@ def test_text_source_without_zips_raises(tmp_path):
         TextSource(tmp_path, "Nope_*_Text.zip")
 
 
-def test_triplifier_end_to_end(data_dirs):
+def test_triplifier_end_to_end(data_dirs, config):
     input_dir, output_dir = data_dirs
     make_text_zip(
         input_dir,
@@ -153,7 +167,7 @@ def test_triplifier_end_to_end(data_dirs):
         ],
     )
 
-    count = SampleTriplifier().run()
+    count = SampleTriplifier(config).run()
 
     parsed = parse_nt_gz(output_dir / "test-output.nt.gz")
     gnisf = config.prefix_list["gnisf"]
@@ -169,7 +183,7 @@ def test_triplifier_end_to_end(data_dirs):
     assert count == len(parsed)
 
 
-def test_triplifier_missing_required_value_raises(data_dirs):
+def test_triplifier_missing_required_value_raises(data_dirs, config):
     input_dir, _ = data_dirs
     make_text_zip(
         input_dir,
@@ -178,11 +192,11 @@ def test_triplifier_missing_required_value_raises(data_dirs):
         ["feature_id|name|code|note", "1||a|"],
     )
     with pytest.raises(ValueError, match="Missing value"):
-        SampleTriplifier().run()
+        SampleTriplifier(config).run()
 
 
-def test_triplifier_without_input_writes_nothing(data_dirs):
+def test_triplifier_without_input_writes_nothing(data_dirs, config):
     _, output_dir = data_dirs
     with pytest.raises(FileNotFoundError):
-        SampleTriplifier().run()
+        SampleTriplifier(config).run()
     assert not (output_dir / "test-output.nt.gz").exists()

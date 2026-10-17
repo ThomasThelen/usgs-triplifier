@@ -6,7 +6,7 @@ from typing import Any, ClassVar
 
 from rdflib import Literal
 
-from ...config import config
+from ...config import Config
 from ...usgs_products import UsgsProduct
 from .rdf import NTriplesWriter, Terms
 from .text_source import TextSource
@@ -40,6 +40,16 @@ class Triplifier(ABC):
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
+    def __init__(self, config: Config):
+        """
+        Creates the triplifier.
+
+        :param config: Settings: the input and output directories, the base
+            IRIs, and whether the input is a legacy dump.
+        """
+        self.config = config
+        self.terms = Terms(config.prefix_list)
+
     def run(self) -> int:
         """
         Writes the triples for every row of the product.
@@ -49,10 +59,11 @@ class Triplifier(ABC):
         :raises ValueError: If a row has no value for a required column.
         """
         source = TextSource(
-            config.input_directory, self.product.pattern_for(config.legacy_dump)
+            self.config.input_directory,
+            self.product.pattern_for(self.config.legacy_dump),
         )
         fields = self.fields()
-        with NTriplesWriter(config.output_directory / self.output_name) as writer:
+        with NTriplesWriter(self.config.output_directory / self.output_name) as writer:
             for row in source.rows():
                 self._write_row(row, fields, writer)
         self._log.info(f"Wrote {len(writer)} triples to {writer.path}")
@@ -116,7 +127,7 @@ class Triplifier(ABC):
         subject_iri = self.subject(row, writer)
         if not subject_iri:
             return
-        subject = Terms.resolve_iri(subject_iri)
+        subject = self.terms.resolve_iri(subject_iri)
 
         for column, mapping in fields.items():
             value = row.get(column) or ""
@@ -124,7 +135,7 @@ class Triplifier(ABC):
             if not isinstance(mapping, FieldDescriptor):
                 pairs = mapping(value, row, writer)
                 if pairs:
-                    Terms.add_pairs(writer, subject, pairs)
+                    self.terms.add_pairs(writer, subject, pairs)
                 continue
 
             if not value:
@@ -133,6 +144,6 @@ class Triplifier(ABC):
                 raise ValueError(f'Missing value for column "{column}"')
             obj = mapping.object(value, row)
             if obj:
-                Terms.add_object(
-                    writer, subject, Terms.resolve_iri(mapping.predicate), obj
+                self.terms.add_object(
+                    writer, subject, self.terms.resolve_iri(mapping.predicate), obj
                 )

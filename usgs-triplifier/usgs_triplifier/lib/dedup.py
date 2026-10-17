@@ -1,61 +1,77 @@
-"""
-Remove exact duplicate triples from the generated dumps.
-
-The triplifiers stream their output (an rdflib Graph would silently
-deduplicate, but costs over a kilobyte of index per triple), so repeated
-source rows or overlapping datasets can emit the same statement twice.
-This pass rewrites each generated file, keeping the first occurrence of
-every triple, with a single digest set shared across files so cross-file
-duplicates (e.g. the same alias asserted by two datasets) are removed too.
-"""
-
 import gzip
 import hashlib
 import logging
 import os
 from pathlib import Path
+from typing import ClassVar
 
-from ..config import config
+from ..config import Config
 from ..output_files import OutputFiles
 
-logger = logging.getLogger(__name__)
 
-
-def remove_duplicate_triples() -> int:
+class Deduplicator:
     """
-    Rewrite every generated .nt.gz in the output directory without duplicates.
+    Removes repeated triples from the generated N-Triples files.
 
-    :return: Number of duplicate lines removed across all files.
+    The triplifiers and crosswalks write each triple as soon as it is
+    produced, so the same triple can be written more than once, within a
+    file or by two different files (e.g. the same alias from two datasets).
+    Each file is rewritten keeping only the first occurrence of every line
+    across all of them, in file name order. retained-features.nt.gz is left
+    as it is, because its lines are copied from release files that were
+    already deduplicated.
     """
-    seen: set[int] = set()
-    n_removed = 0
-    for path in sorted(config.output_directory.glob("*.nt.gz")):
-        # Retained records are diffed from already-deduplicated dumps
-        if path.name == OutputFiles.RETAINED:
-            continue
-        n_removed += _dedupe_file(path, seen)
-    logger.info(f"Removed {n_removed} duplicate triples")
-    return n_removed
 
+    _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
-def _dedupe_file(path: Path, seen: set[int]) -> int:
-    """Rewrite one dump keeping only lines not yet in ``seen``."""
-    tmp_path = path.with_name(path.name + ".tmp")
-    n_removed = 0
-    with (
-        gzip.open(path, "rt", encoding="utf-8") as f_in,
-        gzip.open(tmp_path, "wt", encoding="utf-8") as f_out,
-    ):
-        for line in f_in:
-            # 16-byte digests instead of the lines themselves: the set for a
-            # full run holds tens of millions of entries
-            digest = int.from_bytes(
-                hashlib.blake2b(line.encode("utf-8"), digest_size=16).digest(), "big"
-            )
-            if digest in seen:
-                n_removed += 1
-                continue
-            seen.add(digest)
-            f_out.write(line)
-    os.replace(tmp_path, path)
-    return n_removed
+    def __init__(self, config: Config):
+        """
+        Creates the deduplicator.
+
+        :param config: Settings holding the output directory.
+        """
+        self.config = config
+
+    def run(self) -> int:
+        """
+        Rewrites every .nt.gz in the output directory without repeated lines.
+
+        :return: Number of lines removed across all files.
+        """
+        # 16-byte digests rather than the lines themselves: a full run has
+        # tens of millions of lines
+        seen: set[int] = set()
+        removed = 0
+        for path in sorted(self.config.output_directory.glob("*.nt.gz")):
+            if path.name != OutputFiles.RETAINED:
+                removed += self._dedupe_file(path, seen)
+        self._log.info(f"Removed {removed} duplicate triples")
+        return removed
+
+    @staticmethod
+    def _dedupe_file(path: Path, seen: set[int]) -> int:
+        """
+        Rewrites one file keeping only the lines whose digest is not in seen.
+
+        :param path: Gzipped N-Triples file, replaced in place.
+        :param seen: Digests of the lines kept so far; the file's kept lines are added.
+        :return: Number of lines removed from the file.
+        """
+        tmp_path = path.with_name(path.name + ".tmp")
+        removed = 0
+        with (
+            gzip.open(path, "rt", encoding="utf-8") as f_in,
+            gzip.open(tmp_path, "wt", encoding="utf-8") as f_out,
+        ):
+            for line in f_in:
+                digest = int.from_bytes(
+                    hashlib.blake2b(line.encode("utf-8"), digest_size=16).digest(),
+                    "big",
+                )
+                if digest in seen:
+                    removed += 1
+                    continue
+                seen.add(digest)
+                f_out.write(line)
+        os.replace(tmp_path, path)
+        return removed

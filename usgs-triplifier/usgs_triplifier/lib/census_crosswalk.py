@@ -1,97 +1,103 @@
-"""
-Census GEOID crosswalk from the Census Bureau's national gazetteer files.
-
-Since 2008 the Census "ANSI code" for places and counties has been the GNIS
-Feature ID, so GEOID <-> GNIS is an exact key join over two small files - no
-heuristics. GEOIDs are the join key for effectively all U.S. statistical
-data; carrying them makes every GNIS place and county directly joinable
-against Census products.
-
-Emits, per matched feature:
-
-    gnisf:<id> gnis:censusGeoid "<GEOID>" .
-    gnisf:<id> owl:sameAs <https://datacommons.org/browser/geoId/<GEOID>> .
-
-The second line is the same key wearing its Data Commons address: Google's
-statistical knowledge graph identifies U.S. places by geoId/<FIPS>, so the
-GEOID join doubles as a Data Commons crosswalk for free.
-
-Best-effort like the other crosswalks: unreachable gazetteer files skip the
-step rather than failing the build.
-"""
-
-import gzip
 import io
 import logging
 import zipfile
+from collections.abc import Iterator
 from pathlib import Path
+from typing import ClassVar
 
 import pandas as pd
 import requests
 
-from ..config import config
 from ..output_files import OutputFiles
-from .crosswalk import OWL_SAMEAS
-from .gnis.identifiers import FeatureIds
-
-GAZETTEER_FILES = ["Gaz_counties_national.zip", "Gaz_place_national.zip"]
-
-logger = logging.getLogger(__name__)
+from .crosswalk import Crosswalk
 
 
-def build_census_crosswalk() -> Path | None:
+class CensusCrosswalk(Crosswalk):
     """
-    Write the gzipped N-Triples Census crosswalk to the output directory.
-
-    :return: Path of the written file, or None when the gazetteer files were
-        unavailable.
+    Links GNIS counties and places to their Census GEOIDs, using the Census
+    Bureau's national gazetteer files.
     """
-    frames = []
-    for basename in GAZETTEER_FILES:
-        year = config.census_gazetteer_year
-        url = f"{config.census_gazetteer_base}/{year}_Gazetteer/{year}_{basename}"
-        try:
-            response = requests.get(url, timeout=300)
-            response.raise_for_status()
-            frames.append(_read_gazetteer(response.content))
-        except (requests.RequestException, zipfile.BadZipFile, KeyError) as error:
-            logger.warning(f"Census gazetteer unavailable ({url}), skipping: {error}")
-            return None
 
-    gazetteer = pd.concat(frames, ignore_index=True)
-    geoid_property = f"<{config.lod_base}/gnis/ontology/censusGeoid>"
+    output_name: ClassVar[str] = OutputFiles.CENSUS_CROSSWALK
 
-    output_path = config.output_directory / OutputFiles.CENSUS_CROSSWALK
-    n_links = 0
-    with gzip.open(output_path, "wt", encoding="utf-8") as out:
+    # Gazetteer files read, without the "<year>_" prefix of their names
+    GAZETTEER_FILES: ClassVar[list[str]] = [
+        "Gaz_counties_national.zip",
+        "Gaz_place_national.zip",
+    ]
+
+    _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
+
+    def build(self) -> Path | None:
+        """
+        Downloads the gazetteer files and writes the links.
+
+        :return: Path of the written file, or None when a gazetteer file
+            could not be downloaded or read.
+        """
+        year = self.config.census_gazetteer_year
+        frames = []
+        for name in self.GAZETTEER_FILES:
+            url = f"{self.config.census_gazetteer_base}/{year}_Gazetteer/{year}_{name}"
+            try:
+                response = requests.get(url, timeout=300)
+                response.raise_for_status()
+                frames.append(self._read_gazetteer(response.content))
+            except (requests.RequestException, zipfile.BadZipFile, KeyError) as error:
+                self._log.warning(
+                    f"Census gazetteer {url} unavailable; writing no Census links: {error}"
+                )
+                return None
+
+        self.write_lines(self._links(pd.concat(frames, ignore_index=True)))
+        return self.output_path
+
+    def _links(self, gazetteer: pd.DataFrame) -> Iterator[str]:
+        """
+        Yields the two link lines for every gazetteer row with a numeric
+        ANSICODE and a GEOID.
+
+        :param gazetteer: Rows with GEOID and ANSICODE columns.
+        :return: Iterator of N-Triples lines.
+        """
+        geoid_property = f"<{self.config.lod_base}/gnis/ontology/censusGeoid>"
         for row in gazetteer.itertuples():
             ansi = str(row.ANSICODE).strip()
             geoid = str(row.GEOID).strip()
             if not ansi.isdigit() or not geoid:
                 continue
-            feature = f"<{config.lod_base}/gnis/feature/{FeatureIds.normalize(ansi)}>"
-            out.write(f'{feature} {geoid_property} "{geoid}" .\n')
-            out.write(
-                f"{feature} {OWL_SAMEAS} "
-                f"<https://datacommons.org/browser/geoId/{geoid}> .\n"
+            feature = self.feature_iri(ansi)
+            yield f'{feature} {geoid_property} "{geoid}" .'
+            yield (
+                f"{feature} {self.OWL_SAMEAS} "
+                f"<https://datacommons.org/browser/geoId/{geoid}> ."
             )
-            n_links += 2
 
-    logger.info(f"Wrote {n_links} Census GEOID links to {output_path.name}")
-    return output_path
+    @staticmethod
+    def _read_gazetteer(zip_bytes: bytes) -> pd.DataFrame:
+        """
+        Reads the GEOID and ANSICODE columns of a zipped gazetteer file.
 
+        The files are tab-delimited up to 2024 and pipe-delimited from 2025,
+        so the delimiter is taken from the header line. Some years pad the
+        header names with whitespace, which is stripped so the columns can be
+        selected by name.
 
-def _read_gazetteer(zip_bytes: bytes) -> pd.DataFrame:
-    """GEOID and ANSICODE columns of a zipped national gazetteer file."""
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-        txt_names = [n for n in zf.namelist() if n.endswith(".txt")]
-        raw = zf.read(txt_names[0])
-    # the delimiter changed between vintages: tab through 2024, pipe from 2025
-    header = raw.split(b"\n", 1)[0]
-    sep = "|" if b"|" in header else "\t"
-    frame = pd.read_csv(
-        io.BytesIO(raw), sep=sep, dtype=str, encoding="latin-1", quoting=3
-    )
-    # so does header whitespace
-    frame.columns = [c.strip() for c in frame.columns]
-    return frame[["GEOID", "ANSICODE"]].dropna()
+        :param zip_bytes: Contents of the zip file.
+        :return: Rows with both a GEOID and an ANSICODE.
+        :raises KeyError: If either column is missing.
+        :raises zipfile.BadZipFile: If the bytes are not a zip file.
+        """
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            names = [n for n in zf.namelist() if n.endswith(".txt")]
+            raw = zf.read(names[0])
+        header = raw.split(b"\n", 1)[0]
+        frame = pd.read_csv(
+            io.BytesIO(raw),
+            sep="|" if b"|" in header else "\t",
+            dtype=str,
+            encoding="latin-1",
+            quoting=3,
+        )
+        frame.columns = [c.strip() for c in frame.columns]
+        return frame[["GEOID", "ANSICODE"]].dropna()

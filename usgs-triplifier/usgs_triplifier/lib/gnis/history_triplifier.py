@@ -53,14 +53,3 @@ class HistoryTriplifier(Triplifier):
         """
         text = value.strip()
         return Literal(text, lang="en") if text else ""
-
-
-def main():
-    """
-    Writes history.nt.gz from the input directory.
-    """
-    HistoryTriplifier().run()
-
-
-if __name__ == "__main__":
-    main()

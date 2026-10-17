@@ -1,12 +1,12 @@
-from usgs_triplifier.config import Config, config
+from usgs_triplifier.config import Config
 
 
-def test_default_bases_are_absolute_uris():
+def test_default_bases_are_absolute_uris(config):
     assert config.lod_base.startswith("http://")
     assert config.geo_base.startswith("http://")
 
 
-def test_prefix_list_contains_static_and_computed_namespaces():
+def test_prefix_list_contains_static_and_computed_namespaces(config):
     prefixes = config.prefix_list
     assert str(prefixes["rdf"]) == "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
     assert str(prefixes["gnisf"]) == f"{config.lod_base}/gnis/feature/"
@@ -19,3 +19,9 @@ def test_prefixes_follow_configured_bases():
     )
     assert str(custom.prefix_list["gnis"]) == "http://example.org/lod/gnis/ontology/"
     assert str(custom.prefix_list["usgeo-polygon"]) == "http://example.org/geo/polygon/"
+
+
+def test_default_directories_are_under_the_data_directory():
+    defaults = Config()
+    assert defaults.input_directory == Config.DATA_DIR / "geographic_names"
+    assert defaults.archive_output_directory == Config.DATA_DIR / "archive"

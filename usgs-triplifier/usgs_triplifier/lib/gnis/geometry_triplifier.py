@@ -8,7 +8,7 @@ import pyogrio
 import pyogrio.raw
 import shapely
 
-from ...config import config
+from ...config import Config
 from ...output_files import OutputFiles
 from ...usgs_products import UsgsProducts
 from .identifiers import FeatureIds
@@ -28,6 +28,14 @@ class GeometryTriplifier:
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
+    def __init__(self, config: Config):
+        """
+        Creates the triplifier.
+
+        :param config: Settings: the input and output directories and the base IRIs.
+        """
+        self.config = config
+
     def run(self) -> int:
         """
         Writes a geometry for every feature in the GeoPackage zips in the
@@ -37,13 +45,13 @@ class GeometryTriplifier:
         :raises FileNotFoundError: If the input directory has no GeoPackage zip.
         """
         pattern = UsgsProducts.GEOPACKAGE.pattern
-        zip_paths = sorted(config.input_directory.glob(pattern))
+        zip_paths = sorted(self.config.input_directory.glob(pattern))
         if not zip_paths:
             raise FileNotFoundError(
-                f"No zip files matching {pattern} in {config.input_directory}"
+                f"No zip files matching {pattern} in {self.config.input_directory}"
             )
 
-        path = config.output_directory / OutputFiles.GEOMETRIES
+        path = self.config.output_directory / OutputFiles.GEOMETRIES
         with NTriplesWriter(path) as writer:
             for zip_path in zip_paths:
                 self._log.info(f"Reading geometries from {zip_path.name}")
@@ -84,8 +92,7 @@ class GeometryTriplifier:
                 wkt = shapely.to_wkt(geometry, rounding_precision=-1)
                 self._add_geometry(writer, FeatureIds.normalize(feature_id), wkt)
 
-    @staticmethod
-    def _add_geometry(writer: NTriplesWriter, feature_id: str, wkt: str) -> None:
+    def _add_geometry(self, writer: NTriplesWriter, feature_id: str, wkt: str) -> None:
         """
         Links a feature to its multipoint node and attaches the WKT literal.
 
@@ -93,7 +100,7 @@ class GeometryTriplifier:
         :param feature_id: Canonical feature id, as used in gnisf: IRIs.
         :param wkt: 2D multipoint WKT, without a CRS prefix.
         """
-        prefixes = config.prefix_list
+        prefixes = self.config.prefix_list
         geosparql = prefixes["geosparql"]
         geometry = prefixes["usgeo-multipoint"][f"gnisf.{feature_id}"]
         writer.add((prefixes["gnisf"][feature_id], geosparql["hasGeometry"], geometry))

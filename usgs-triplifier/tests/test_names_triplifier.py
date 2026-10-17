@@ -2,14 +2,13 @@ from rdflib import Literal
 from rdflib.namespace import RDFS, XSD
 
 from conftest import make_text_zip, parse_nt_gz
-from usgs_triplifier.config import config
 from usgs_triplifier.lib.gnis.names_triplifier import NamesTriplifier
 
 
 HEADER = "feature_id|feature_name|feature_name_official|citation|date_created"
 
 
-def test_names_end_to_end(data_dirs):
+def test_names_end_to_end(data_dirs, config):
     input_dir, output_dir = data_dirs
     make_text_zip(
         input_dir,
@@ -23,7 +22,7 @@ def test_names_end_to_end(data_dirs):
         ],
     )
 
-    NamesTriplifier().run()
+    NamesTriplifier(config).run()
 
     graph = parse_nt_gz(output_dir / "names.nt.gz")
     gnisf = config.prefix_list["gnisf"]

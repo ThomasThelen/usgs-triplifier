@@ -31,7 +31,7 @@ These files are used by gnis-ld.org, which scans the volume mount and derives it
 
 Two behaviors to know about:
 
-- **Retention.** Feature URIs are permanent. Before each release the pipeline diffs the new dump against the previous release. Any record that was removed from the new release upstream is still carried forward and typed as `usgs:HistoricalFeature`. The feature is also annotated with `gnis:lastAppearedIn <.../gnis/release/ID>`, so its URI keeps resolving. A feature that reappears upstream leaves the historical set.
+- **Retention.** Feature URIs are permanent. After a release is exported, it is compared with every earlier release in the archive, including legacy dumps added later. The records of every subject missing from the new release are copied from the newest earlier release that has them, written to the historical release file, and loaded into GraphDB, so their URIs keep resolving. Each such feature is typed `usgs:HistoricalFeature` and given `gnis:lastAppearedIn <.../gnis/release/ID>` for that release. A feature that reappears upstream leaves the historical set.
 
 - **Full replacement.** Each load clears the repository and reloads it, so stale values never accumulate. The dataset metadata re-describes every archived release on every build, which is how the release lineage stays queryable across reloads.
 
@@ -65,9 +65,13 @@ The legacy file format differs from the current products in its file names, uppe
 
 There are three ways to run:
 
-1. Directly calling the ugs-triplifier package via `python -m <one of the modules here>`
-2. By running the local docker stack and letting automation download, triplify, and upload
-3. Through the gnis-deployment repository
+1. Run the ETL directly with uv (Python 3.14), against a GraphDB at `GRAPHDB_URL`:
+   `cd usgs-triplifier && GDB_PASS=<password> PYTHONPATH=../etl/code uv run python ../etl/code/etl.py`.
+   The settings are read from the environment variables in the table above.
+2. Run the local Docker stack, which starts GraphDB and runs the ETL
+3. Deploy with the gnis-deployment repository
+
+The tests run with `cd usgs-triplifier && uv run pytest`.
 
 
 ## Acknowledgments

@@ -2,12 +2,11 @@ from rdflib import Literal
 from rdflib.namespace import OWL, RDF
 
 from conftest import make_text_zip, parse_nt_gz
-from usgs_triplifier.config import config
 from usgs_triplifier.lib.gnis.history_triplifier import HistoryTriplifier
 from usgs_triplifier.lib.gnis.units_triplifier import UnitsTriplifier
 
 
-def test_history_end_to_end(data_dirs):
+def test_history_end_to_end(data_dirs, config):
     input_dir, output_dir = data_dirs
     make_text_zip(
         input_dir,
@@ -20,7 +19,7 @@ def test_history_end_to_end(data_dirs):
         ],
     )
 
-    HistoryTriplifier().run()
+    HistoryTriplifier(config).run()
 
     graph = parse_nt_gz(output_dir / "history.nt.gz")
     gnisf = config.prefix_list["gnisf"]
@@ -36,7 +35,7 @@ def test_history_end_to_end(data_dirs):
     assert list(graph.predicate_objects(gnisf["2"])) == []
 
 
-def test_units_end_to_end(data_dirs):
+def test_units_end_to_end(data_dirs, config):
     input_dir, output_dir = data_dirs
     make_text_zip(
         input_dir,
@@ -51,7 +50,7 @@ def test_units_end_to_end(data_dirs):
         ],
     )
 
-    UnitsTriplifier().run()
+    UnitsTriplifier(config).run()
 
     graph = parse_nt_gz(output_dir / "units.nt.gz")
     gnisf = config.prefix_list["gnisf"]

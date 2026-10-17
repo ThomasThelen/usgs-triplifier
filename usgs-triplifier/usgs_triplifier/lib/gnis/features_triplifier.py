@@ -5,7 +5,7 @@ from typing import ClassVar
 from rdflib import Literal, URIRef
 from rdflib.namespace import OWL, XSD
 
-from ...config import config
+from ...config import Config
 from ...output_files import OutputFiles
 from ...states import States
 from ...usgs_products import UsgsProduct, UsgsProducts
@@ -35,10 +35,13 @@ class FeaturesTriplifier(Triplifier):
         "Pillar": "Rock",
     }
 
-    def __init__(self):
+    def __init__(self, config: Config):
         """
         Creates the triplifier with no aliases recorded.
+
+        :param config: Settings, as for Triplifier.
         """
+        super().__init__(config)
         # Alias id -> ids of the features with that alias, filled by subject()
         self._aliases: dict[str, list[str]] = {}
 
@@ -82,7 +85,7 @@ class FeaturesTriplifier(Triplifier):
                 "gnis:dateFeatureEdited", self.date_object, optional=True
             ),
         }
-        if config.legacy_dump:
+        if self.config.legacy_dump:
             fields["elev_in_ft"] = self.elev_in_ft_field
         return fields
 
@@ -123,7 +126,7 @@ class FeaturesTriplifier(Triplifier):
         :param row: Source row (unused).
         :return: The usgs: class IRI.
         """
-        return config.prefix_list["usgs"][self._class_name(value)]
+        return self.config.prefix_list["usgs"][self._class_name(value)]
 
     def state_object(self, value: str, row: dict) -> URIRef:
         """
@@ -133,7 +136,7 @@ class FeaturesTriplifier(Triplifier):
         :param row: Source row (unused).
         :return: The state's gnisf-alias: IRI.
         """
-        return config.prefix_list["gnisf-alias"][FeatureIds.alias_part(value)]
+        return self.config.prefix_list["gnisf-alias"][FeatureIds.alias_part(value)]
 
     def county_object(self, value: str, row: dict) -> URIRef:
         """
@@ -147,8 +150,8 @@ class FeaturesTriplifier(Triplifier):
         if value:
             state = FeatureIds.alias_part(row.get("state_name", ""))
             county = FeatureIds.alias_part(value)
-            return config.prefix_list["gnisf-alias"][f"{state}.{county}"]
-        return config.prefix_list["gnis"]["UnknownCounty"]
+            return self.config.prefix_list["gnisf-alias"][f"{state}.{county}"]
+        return self.config.prefix_list["gnis"]["UnknownCounty"]
 
     def prim_lat_dec_field(
         self, value: str, row: dict, writer: NTriplesWriter
@@ -166,8 +169,8 @@ class FeaturesTriplifier(Triplifier):
             return None
 
         feature_id = FeatureIds.normalize(row.get("feature_id", ""))
-        geometry = URIRef(f"{config.geo_base}/point/gnisf.{feature_id}")
-        geosparql = config.prefix_list["geosparql"]
+        geometry = URIRef(f"{self.config.geo_base}/point/gnisf.{feature_id}")
+        geosparql = self.config.prefix_list["geosparql"]
         writer.add(
             (geometry, geosparql["asWKT"], Terms.wkt_literal(f"POINT({lng} {value})"))
         )
@@ -229,11 +232,11 @@ class FeaturesTriplifier(Triplifier):
         """
         Writes feature-aliases.nt.gz from the aliases recorded by subject().
         """
-        gnisf = config.prefix_list["gnisf"]
-        gnisf_alias = config.prefix_list["gnisf-alias"]
-        disambiguates_to = config.prefix_list["gnis"]["disambiguatesTo"]
+        gnisf = self.config.prefix_list["gnisf"]
+        gnisf_alias = self.config.prefix_list["gnisf-alias"]
+        disambiguates_to = self.config.prefix_list["gnis"]["disambiguatesTo"]
 
-        path = config.output_directory / OutputFiles.FEATURE_ALIASES
+        path = self.config.output_directory / OutputFiles.FEATURE_ALIASES
         with NTriplesWriter(path) as writer:
             for alias, feature_ids in self._aliases.items():
                 alias_iri = gnisf_alias[alias]
@@ -243,14 +246,3 @@ class FeaturesTriplifier(Triplifier):
                     for feature_id in feature_ids:
                         writer.add((alias_iri, disambiguates_to, gnisf[feature_id]))
         self._log.info(f"Wrote {len(writer)} alias triples to {path}")
-
-
-def main():
-    """
-    Writes features.nt.gz and feature-aliases.nt.gz from the input directory.
-    """
-    FeaturesTriplifier().run()
-
-
-if __name__ == "__main__":
-    main()

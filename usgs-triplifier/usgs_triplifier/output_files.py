@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import ClassVar
 
@@ -36,6 +37,17 @@ class OutputFiles:
     HISTORICAL_RELEASE: ClassVar[re.Pattern] = re.compile(
         r"^gnis-ld-historical-(\d{6})\.nt\.gz$"
     )
+
+    @staticmethod
+    def release_id(build_time: datetime) -> str:
+        """
+        Builds the id of the release made at a build time. The id names the
+        release files and ends the release's URI.
+
+        :param build_time: Time the release is dated with.
+        :return: The date as YYMMDD, e.g. 260701.
+        """
+        return build_time.strftime("%y%m%d")
 
     @staticmethod
     def release(release_id: str) -> str:

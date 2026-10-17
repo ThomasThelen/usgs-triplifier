@@ -1,149 +1,233 @@
 import gzip
 import re
-from datetime import datetime, timezone
+from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
+from typing import ClassVar
 
-from ..config import config
+from ..config import Config
 from ..output_files import OutputFiles
-from .dataset_metadata import build_id_for
-
-# Blank-node closure is shallow (feature -> elevation node); passes are a
-# safety bound, not an expected depth.
-MAX_CLOSURE_PASSES = 5
 
 
-def build_retained(build_time: datetime | None = None) -> Path | None:
+class RetentionBuilder:
     """
-    Write the retained-features dump for every record dropped from this
-    release.
+    Keeps the records of features that are no longer in the USGS products,
+    so their URIs keep resolving.
 
-    Diffs the just-exported release dump against the newest previous release
-    dump and the newest previous historical dump in the archive: any subject
-    present before but absent now is carried forward verbatim (with its
-    blank-node closure), and newly dropped GNIS features are tombstoned with
-    rdf:type usgs:HistoricalFeature and gnis:lastAppearedIn pointing at the
-    release they last appeared in. Records already retained stay retained
-    until their subject reappears upstream.
+    The release just exported is compared with every earlier release in the
+    archive output directory, so a release built out of order (a legacy dump
+    added after later releases) is covered too. Every IRI subject that is
+    in an earlier release but not in the new one has its lines copied, with
+    the blank nodes they reference, to retained-features.nt.gz:
 
-    :param build_time: Timestamp identifying the build; defaults to now (UTC).
-    :return: Path of the written file, or None when nothing was retained
-        (first release, or no records dropped).
+        - Subjects already in the newest earlier historical release file are
+          copied from it as they are, with their existing
+          usgs:HistoricalFeature and gnis:lastAppearedIn triples.
+        - Every other subject is copied from the newest earlier release that
+          has it. Each GNIS feature among them gets rdf:type
+          usgs:HistoricalFeature and gnis:lastAppearedIn with that release's IRI.
     """
-    build_time = build_time or datetime.now(timezone.utc)
-    build_id = build_id_for(build_time)
 
-    archive_dir = config.archive_output_directory
-    current_dump = archive_dir / OutputFiles.release(build_id)
-    previous_main = _previous_dump(archive_dir, OutputFiles.RELEASE, build_id)
-    previous_historical = _previous_dump(
-        archive_dir, OutputFiles.HISTORICAL_RELEASE, build_id
-    )
-    if previous_main is None:
-        return None
+    # Maximum passes over a file to collect the blank nodes that retained
+    # lines reference. Retained blank nodes are one level deep (feature to
+    # elevation), so the loop normally stops after two passes.
+    MAX_CLOSURE_PASSES: ClassVar[int] = 5
 
-    current_subjects = _uri_subjects(current_dump)
+    RDF_TYPE: ClassVar[str] = "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>"
 
-    lines: list[str] = []
-    # Records already retained: kept until their subject reappears upstream.
-    # These carry their original tombstones, so no new ones are added.
-    if previous_historical is not None:
-        lines.extend(_dropped_records(previous_historical, current_subjects))
+    def __init__(self, config: Config):
+        """
+        Creates the builder.
 
-    # Records newly dropped from the previous release, plus tombstones
-    newly_dropped = _dropped_records(previous_main, current_subjects)
-    lines.extend(newly_dropped)
-    previous_release_uri = f"{config.lod_base}/gnis/release/{OutputFiles.RELEASE.match(previous_main.name)[1]}"
-    lines.extend(_tombstones(newly_dropped, previous_release_uri))
+        :param config: Settings: the output and archive output directories
+            and lod_base.
+        """
+        self.config = config
 
-    # Always (ewrite the file so a stale one from a previous run is never
-    # loaded, but only report a path when there is something to publish.
-    output_path = config.output_directory / OutputFiles.RETAINED
-    with gzip.open(output_path, "wt", encoding="utf-8") as out:
-        for line in lines:
-            out.write(line + "\n")
-    return output_path if lines else None
+    def build(self, build_time: datetime) -> Path | None:
+        """
+        Writes retained-features.nt.gz to the output directory.
 
+        :param build_time: Time the release just exported is dated with.
+        :return: Path of the file, or None when nothing is retained. When the
+            archive has no earlier release, no file is written; otherwise the
+            file is written even when it is empty.
+        :raises FileNotFoundError: If the release for build_time has not been exported.
+        """
+        release_id = OutputFiles.release_id(build_time)
+        archive_dir = self.config.archive_output_directory
+        earlier = self._earlier(archive_dir, OutputFiles.RELEASE, release_id)
+        if not earlier:
+            return None
+        earlier_historical = self._earlier(
+            archive_dir, OutputFiles.HISTORICAL_RELEASE, release_id
+        )
 
-def _previous_dump(
-    archive_dir: Path, pattern: re.Pattern, build_id: str
-) -> Path | None:
-    """Newest archived dump matching ``pattern`` from before this build."""
-    candidates = [
-        (m[1], path)
-        for path in archive_dir.glob("*.nt.gz")
-        if (m := pattern.match(path.name)) and m[1] < build_id
-    ]
-    return max(candidates)[1] if candidates else None
+        # Subjects not to copy again: those in the new release, and those
+        # already copied from a newer file
+        covered = self._iri_subjects(archive_dir / OutputFiles.release(release_id))
 
+        lines: list[str] = []
+        if earlier_historical:
+            retained = self._dropped_records(earlier_historical[0], covered)
+            lines.extend(retained)
+            covered |= self._iri_subjects_of(retained)
 
-def _lines(dump_path: Path):
-    """Yield each triple line of a gzipped N-Triples dump."""
-    with gzip.open(dump_path, "rt", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#"):
-                yield line
-
-
-def _subject(line: str) -> str:
-    return line[: line.index(" ")]
-
-
-def _object(line: str) -> str:
-    """The object term: between the predicate and the closing ' .'."""
-    after_subject = line[line.index(" ") + 1 :]
-    return after_subject[after_subject.index(" ") + 1 : -2].strip()
-
-
-def _uri_subjects(dump_path: Path) -> set[str]:
-    """Every URI appearing in subject position in a dump."""
-    return {s for line in _lines(dump_path) if (s := _subject(line)).startswith("<")}
-
-
-def _dropped_records(source: Path, current_subjects: set[str]) -> list[str]:
-    """
-    Lines of ``source`` whose subject no longer appears in the current
-    release, plus the blank-node closure of those records.
-
-    A dropped feature's dependent records (geometry, aliases) are dropped
-    subjects themselves, so the URI diff catches them directly; only blank
-    nodes need chasing.
-    """
-    keep = {
-        s
-        for line in _lines(source)
-        if (s := _subject(line)).startswith("<") and s not in current_subjects
-    }
-
-    kept_lines: list[str] = []
-    seen: set[str] = set()
-    for _ in range(MAX_CLOSURE_PASSES):
-        grew = False
-        for line in _lines(source):
-            if _subject(line) not in keep or line in seen:
+        for path in earlier:
+            dropped = self._dropped_records(path, covered)
+            if not dropped:
                 continue
-            seen.add(line)
-            kept_lines.append(line)
-            obj = _object(line)
-            if obj.startswith("_:") and obj not in keep:
-                keep.add(obj)
-                grew = True
-        if not grew:
-            break
-    return kept_lines
+            lines.extend(dropped)
+            covered |= self._iri_subjects_of(dropped)
+            path_id = OutputFiles.RELEASE.match(path.name)[1]
+            lines.extend(
+                self._historical_triples(
+                    dropped, f"{self.config.lod_base}/gnis/release/{path_id}"
+                )
+            )
 
+        path = self.config.output_directory / OutputFiles.RETAINED
+        with gzip.open(path, "wt", encoding="utf-8") as out:
+            for line in lines:
+                out.write(line + "\n")
+        return path if lines else None
 
-def _tombstones(dropped_lines: list[str], release_uri: str) -> list[str]:
-    """Historical typing + provenance for each newly dropped GNIS feature."""
-    feature_prefix = f"<{config.lod_base}/gnis/feature/"
-    features = {
-        s for line in dropped_lines if (s := _subject(line)).startswith(feature_prefix)
-    }
-    historical_class = f"<{config.lod_base}/usgs/ontology/HistoricalFeature>"
-    last_appeared = f"<{config.lod_base}/gnis/ontology/lastAppearedIn>"
-    rdf_type = "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>"
-    lines = []
-    for feature in sorted(features):
-        lines.append(f"{feature} {rdf_type} {historical_class} .")
-        lines.append(f"{feature} {last_appeared} <{release_uri}> .")
-    return lines
+    @staticmethod
+    def _earlier(archive_dir: Path, pattern: re.Pattern, release_id: str) -> list[Path]:
+        """
+        Lists the files in the archive whose name matches a release file
+        pattern and whose release id is earlier than release_id.
+
+        :param archive_dir: Archive output directory.
+        :param pattern: OutputFiles.RELEASE or OutputFiles.HISTORICAL_RELEASE.
+        :param release_id: Id of the release just exported.
+        :return: The files, newest release first.
+        """
+        candidates = [
+            (m[1], path)
+            for path in archive_dir.glob("*.nt.gz")
+            if (m := pattern.match(path.name)) and m[1] < release_id
+        ]
+        return [path for _, path in sorted(candidates, reverse=True)]
+
+    @staticmethod
+    def _lines(path: Path) -> Iterator[str]:
+        """
+        Yields the triple lines of a gzipped N-Triples file.
+
+        :param path: The file.
+        :return: Iterator of lines without surrounding whitespace, skipping
+            blank lines and comments.
+        """
+        with gzip.open(path, "rt", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    yield line
+
+    @staticmethod
+    def _subject(line: str) -> str:
+        """
+        Extracts the subject term of an N-Triples line.
+
+        :param line: N-Triples line without surrounding whitespace.
+        :return: The text before the first space.
+        """
+        return line[: line.index(" ")]
+
+    @staticmethod
+    def _object(line: str) -> str:
+        """
+        Extracts the object term of an N-Triples line.
+
+        :param line: N-Triples line without surrounding whitespace.
+        :return: The text between the predicate and the closing " .".
+        """
+        after_subject = line[line.index(" ") + 1 :]
+        return after_subject[after_subject.index(" ") + 1 : -2].strip()
+
+    def _iri_subjects(self, path: Path) -> set[str]:
+        """
+        Collects the IRI subjects of a file.
+
+        :param path: Gzipped N-Triples file.
+        :return: The subject terms that are IRIs, in angle brackets.
+        """
+        return {
+            s
+            for line in self._lines(path)
+            if (s := self._subject(line)).startswith("<")
+        }
+
+    def _iri_subjects_of(self, lines: list[str]) -> set[str]:
+        """
+        Collects the IRI subjects of N-Triples lines.
+
+        :param lines: N-Triples lines without surrounding whitespace.
+        :return: The subject terms that are IRIs, in angle brackets.
+        """
+        return {s for line in lines if (s := self._subject(line)).startswith("<")}
+
+    def _dropped_records(self, source: Path, covered: set[str]) -> list[str]:
+        """
+        Collects the lines of a file whose IRI subject is not covered, and the
+        lines of the blank nodes they reference.
+
+        A dropped feature's geometry and alias are IRI subjects of their own,
+        so they are collected by the same comparison; only blank nodes need
+        extra passes, and a file with nothing to collect is read once.
+
+        :param source: Earlier release or historical release file.
+        :param covered: IRI subjects to leave out: those in the new release
+            and those already collected from newer files.
+        :return: The collected lines, in file order.
+        """
+        keep = {
+            s
+            for line in self._lines(source)
+            if (s := self._subject(line)).startswith("<") and s not in covered
+        }
+        if not keep:
+            return []
+        kept: list[str] = []
+        seen: set[str] = set()
+        for _ in range(self.MAX_CLOSURE_PASSES):
+            added_blank_node = False
+            for line in self._lines(source):
+                if self._subject(line) not in keep or line in seen:
+                    continue
+                seen.add(line)
+                kept.append(line)
+                obj = self._object(line)
+                if obj.startswith("_:") and obj not in keep:
+                    keep.add(obj)
+                    added_blank_node = True
+            if not added_blank_node:
+                break
+        return kept
+
+    def _historical_triples(
+        self, dropped_lines: list[str], release_iri: str
+    ) -> list[str]:
+        """
+        Builds the rdf:type usgs:HistoricalFeature and gnis:lastAppearedIn
+        triples of each GNIS feature among the dropped lines' subjects.
+
+        :param dropped_lines: Lines collected from one earlier release.
+        :param release_iri: IRI of that release, the last that had the features.
+        :return: N-Triples lines, two per feature.
+        """
+        lod = self.config.lod_base
+        feature_prefix = f"<{lod}/gnis/feature/"
+        features = {
+            s
+            for line in dropped_lines
+            if (s := self._subject(line)).startswith(feature_prefix)
+        }
+        historical_class = f"<{lod}/usgs/ontology/HistoricalFeature>"
+        last_appeared = f"<{lod}/gnis/ontology/lastAppearedIn>"
+        lines = []
+        for feature in sorted(features):
+            lines.append(f"{feature} {self.RDF_TYPE} {historical_class} .")
+            lines.append(f"{feature} {last_appeared} <{release_iri}> .")
+        return lines

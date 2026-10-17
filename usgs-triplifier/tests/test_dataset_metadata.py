@@ -3,8 +3,7 @@ from datetime import datetime, timezone
 from rdflib import Graph, Literal, URIRef
 from rdflib.namespace import DCAT, DCTERMS, PROV, VOID, RDF, XSD
 
-from usgs_triplifier.config import config
-from usgs_triplifier.lib.dataset_metadata import build_id_for, write_dataset_metadata
+from usgs_triplifier.lib.dataset_metadata import DatasetMetadataWriter
 from usgs_triplifier.output_files import OutputFiles
 from usgs_triplifier.usgs_products import UsgsProducts
 
@@ -12,21 +11,21 @@ BUILD_TIME = datetime(2026, 8, 10, 12, 30, tzinfo=timezone.utc)
 BUILD_ID = "260810"
 
 
-def _write_and_parse(output_dir, archive_path=None):
-    path = write_dataset_metadata(build_time=BUILD_TIME, archive_path=archive_path)
-    assert path == output_dir / OutputFiles.METADATA
+def _write_and_parse(config, release_path=None):
+    path = DatasetMetadataWriter(config).write(BUILD_TIME, release_path=release_path)
+    assert path == config.output_directory / OutputFiles.METADATA
     graph = Graph()
     graph.parse(path, format="turtle")
     return graph
 
 
 def test_build_id_is_yymmdd():
-    assert build_id_for(BUILD_TIME) == BUILD_ID
+    assert OutputFiles.release_id(BUILD_TIME) == BUILD_ID
 
 
-def test_dataset_and_release_are_linked_versions(data_dirs):
+def test_dataset_and_release_are_linked_versions(data_dirs, config):
     _, output_dir = data_dirs
-    graph = _write_and_parse(output_dir)
+    graph = _write_and_parse(config)
 
     dataset = URIRef(f"{config.lod_base}/gnis")
     release = URIRef(f"{config.lod_base}/gnis/release/{BUILD_ID}")
@@ -42,9 +41,9 @@ def test_dataset_and_release_are_linked_versions(data_dirs):
     assert len(issued) == 1 and str(issued[0]) == "2026-08-10"
 
 
-def test_release_records_sources_and_pipeline(data_dirs):
+def test_release_records_sources_and_pipeline(data_dirs, config):
     _, output_dir = data_dirs
-    graph = _write_and_parse(output_dir)
+    graph = _write_and_parse(config)
     release = URIRef(f"{config.lod_base}/gnis/release/{BUILD_ID}")
 
     sources = {str(s) for s in graph.objects(release, DCTERMS.source)}
@@ -57,10 +56,10 @@ def test_release_records_sources_and_pipeline(data_dirs):
     assert (activities[0], RDF.type, PROV.Activity) in graph
 
 
-def test_legacy_dump_release_records_the_legacy_sources(data_dirs, monkeypatch):
+def test_legacy_dump_release_records_the_legacy_sources(data_dirs, monkeypatch, config):
     _, output_dir = data_dirs
-    monkeypatch.setattr(config, "legacy_dump_date", "2021-08-25")
-    graph = _write_and_parse(output_dir)
+    config.legacy_dump_date = "2021-08-25"
+    graph = _write_and_parse(config)
     release = URIRef(f"{config.lod_base}/gnis/release/{BUILD_ID}")
 
     sources = {str(s) for s in graph.objects(release, DCTERMS.source)}
@@ -70,11 +69,11 @@ def test_legacy_dump_release_records_the_legacy_sources(data_dirs, monkeypatch):
     }
 
 
-def test_distributions_describe_output_files(data_dirs):
+def test_distributions_describe_output_files(data_dirs, config):
     _, output_dir = data_dirs
     (output_dir / "features.nt.gz").write_text("# features")
     (output_dir / "names.nt.gz").write_text("# names, longer content")
-    graph = _write_and_parse(output_dir)
+    graph = _write_and_parse(config)
     release = URIRef(f"{config.lod_base}/gnis/release/{BUILD_ID}")
 
     distributions = list(graph.objects(release, DCAT.distribution))
@@ -88,11 +87,11 @@ def test_distributions_describe_output_files(data_dirs):
     assert len(sizes) == 1 and int(sizes[0]) == len("# features")
 
 
-def test_archive_dump_recorded_as_download(data_dirs, tmp_path):
+def test_archive_dump_recorded_as_download(data_dirs, tmp_path, config):
     _, output_dir = data_dirs
     dump = tmp_path / f"gnis-ld-{BUILD_ID}.nt.gz"
     dump.write_bytes(b"gzip bytes")
-    graph = _write_and_parse(output_dir, archive_path=dump)
+    graph = _write_and_parse(config, release_path=dump)
     release = URIRef(f"{config.lod_base}/gnis/release/{BUILD_ID}")
 
     download = URIRef(f"{config.site_base}/archive/{dump.name}")
@@ -104,7 +103,7 @@ def test_archive_dump_recorded_as_download(data_dirs, tmp_path):
     assert len(sizes) == 1 and int(sizes[0]) == len(b"gzip bytes")
 
 
-def test_archived_releases_are_redescribed_every_build(data_dirs, tmp_path):
+def test_archived_releases_are_redescribed_every_build(data_dirs, tmp_path, config):
     _, output_dir = data_dirs
     archive = tmp_path / "archive"
     archive.mkdir()
@@ -114,7 +113,7 @@ def test_archived_releases_are_redescribed_every_build(data_dirs, tmp_path):
     # The current build's own dump is described via archive_path, not the scan
     (archive / f"gnis-ld-{BUILD_ID}.nt.gz").write_bytes(b"current dump")
 
-    graph = _write_and_parse(output_dir)
+    graph = _write_and_parse(config)
 
     dataset = URIRef(f"{config.lod_base}/gnis")
     prior = URIRef(f"{config.lod_base}/gnis/release/260401")

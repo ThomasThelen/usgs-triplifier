@@ -4,7 +4,6 @@ from typing import ClassVar
 from rdflib import Literal, URIRef
 from rdflib.namespace import OWL
 
-from ...config import config
 from ...output_files import OutputFiles
 from ...usgs_products import UsgsProduct, UsgsProducts
 from .identifiers import FeatureIds
@@ -71,9 +70,9 @@ class UnitsTriplifier(Triplifier):
         feature_id = FeatureIds.normalize(row.get("feature_id", ""))
         writer.add(
             (
-                config.prefix_list["gnisf-alias"][alias],
+                self.config.prefix_list["gnisf-alias"][alias],
                 OWL.sameAs,
-                config.prefix_list["gnisf"][feature_id],
+                self.config.prefix_list["gnisf"][feature_id],
             )
         )
         return f"gnisf:{feature_id}"
@@ -86,7 +85,7 @@ class UnitsTriplifier(Triplifier):
         :param row: Source row (unused).
         :return: The gnis: class IRI.
         """
-        return config.prefix_list["gnis"][value.capitalize()]
+        return self.config.prefix_list["gnis"][value.capitalize()]
 
     def county_numeric_object(self, value: str, row: dict) -> Literal:
         """
@@ -137,15 +136,4 @@ class UnitsTriplifier(Triplifier):
         :param row: Source row (unused).
         :return: The country's gnisf-alias: IRI.
         """
-        return config.prefix_list["gnisf-alias"][FeatureIds.alias_part(value)]
-
-
-def main():
-    """
-    Writes units.nt.gz from the input directory.
-    """
-    UnitsTriplifier().run()
-
-
-if __name__ == "__main__":
-    main()
+        return self.config.prefix_list["gnisf-alias"][FeatureIds.alias_part(value)]

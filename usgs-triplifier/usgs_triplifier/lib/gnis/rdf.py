@@ -3,10 +3,9 @@ import logging
 from pathlib import Path
 from typing import Any, ClassVar
 
-from rdflib import BNode, Literal, URIRef
+from rdflib import BNode, Literal, Namespace, URIRef
+from rdflib.namespace import GEO
 from rdflib.plugins.serializers.nt import _nt_row
-
-from ...config import config
 
 
 class NTriplesWriter:
@@ -73,7 +72,7 @@ class Terms:
         - ``"text``           a plain literal
         - ``@en"text``        a language-tagged literal
         - ``^xsd:double"1.5`` a typed literal; the datatype is a prefixed name
-        - ``prefix:local``    an IRI built from a prefix in config.prefix_list
+        - ``prefix:local``    an IRI built from one of the prefixes it was created with
         - anything else      a plain literal
     """
 
@@ -83,13 +82,20 @@ class Terms:
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
-    @staticmethod
-    def resolve_iri(text: str) -> URIRef:
+    def __init__(self, prefixes: dict[str, Namespace]):
+        """
+        Creates a converter for a set of prefixes.
+
+        :param prefixes: Prefix -> namespace, as given by Config.prefix_list.
+        """
+        self.prefixes = prefixes
+
+    def resolve_iri(self, text: str) -> URIRef:
         """
         Converts an IRI in the notation to a URIRef.
 
         :param text: ``>`` followed by a full IRI, or ``prefix:local`` with a
-            prefix from config.prefix_list. Any other string, including one
+            known prefix. Any other string, including one
             with an unknown prefix, is used as the IRI unchanged.
         :return: The IRI.
         """
@@ -97,12 +103,11 @@ class Terms:
             return URIRef(text[1:])
         if ":" in text:
             prefix, local = text.split(":", 1)
-            if prefix in config.prefix_list:
-                return config.prefix_list[prefix][local]
+            if prefix in self.prefixes:
+                return self.prefixes[prefix][local]
         return URIRef(text)
 
-    @classmethod
-    def parse_object(cls, text: str) -> URIRef | Literal:
+    def parse_object(self, text: str) -> URIRef | Literal:
         """
         Converts an object in the notation to an rdflib term.
 
@@ -118,13 +123,12 @@ class Terms:
             return Literal(value, lang=lang)
         if text.startswith("^"):
             datatype, value = text[1:].split('"', 1)
-            return Literal(value, datatype=cls.resolve_iri(datatype))
+            return Literal(value, datatype=self.resolve_iri(datatype))
         if ":" in text:
-            return cls.resolve_iri(text)
+            return self.resolve_iri(text)
         return Literal(text)
 
-    @classmethod
-    def add_object(cls, writer, subject, predicate: URIRef, obj: Any) -> None:
+    def add_object(self, writer, subject, predicate: URIRef, obj: Any) -> None:
         """
         Writes the triple(s) for one object of a subject and predicate.
 
@@ -141,16 +145,15 @@ class Terms:
         if isinstance(obj, (URIRef, Literal)):
             writer.add((subject, predicate, obj))
         elif isinstance(obj, str):
-            writer.add((subject, predicate, cls.parse_object(obj)))
+            writer.add((subject, predicate, self.parse_object(obj)))
         elif isinstance(obj, dict):
             node = BNode()
             writer.add((subject, predicate, node))
-            cls.add_pairs(writer, node, obj)
+            self.add_pairs(writer, node, obj)
         else:
-            cls._log.warning(f"Skipping unsupported object type {type(obj)!r}: {obj}")
+            self._log.warning(f"Skipping unsupported object type {type(obj)!r}: {obj}")
 
-    @classmethod
-    def add_pairs(cls, writer, subject, pairs: dict) -> None:
+    def add_pairs(self, writer, subject, pairs: dict) -> None:
         """
         Writes the triples for a mapping of predicates to objects.
 
@@ -163,7 +166,7 @@ class Terms:
             if not isinstance(objects, list):
                 objects = [objects]
             for obj in objects:
-                cls.add_object(writer, subject, cls.resolve_iri(predicate), obj)
+                self.add_object(writer, subject, self.resolve_iri(predicate), obj)
 
     @classmethod
     def wkt_literal(cls, wkt: str) -> Literal:
@@ -173,5 +176,4 @@ class Terms:
         :param wkt: 2D WKT geometry, e.g. ``POINT(-117.2 34.5)``.
         :return: The literal.
         """
-        geosparql = config.prefix_list["geosparql"]
-        return Literal(f"{cls.CRS84}{wkt}", datatype=geosparql["wktLiteral"])
+        return Literal(f"{cls.CRS84}{wkt}", datatype=GEO.wktLiteral)

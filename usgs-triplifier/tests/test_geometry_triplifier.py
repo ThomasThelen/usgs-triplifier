@@ -3,12 +3,11 @@ import shapely
 from rdflib import Literal
 
 from conftest import make_gpkg_zip, parse_nt_gz
-from usgs_triplifier.config import config
 from usgs_triplifier.lib.gnis.geometry_triplifier import GeometryTriplifier
 from usgs_triplifier.lib.gnis.rdf import Terms
 
 
-def test_geometries_end_to_end(data_dirs):
+def test_geometries_end_to_end(data_dirs, config):
     input_dir, output_dir = data_dirs
     make_gpkg_zip(
         input_dir,
@@ -20,7 +19,7 @@ def test_geometries_end_to_end(data_dirs):
         },
     )
 
-    count = GeometryTriplifier().run()
+    count = GeometryTriplifier(config).run()
 
     graph = parse_nt_gz(output_dir / "geometries.nt.gz")
     gnisf = config.prefix_list["gnisf"]
@@ -43,6 +42,6 @@ def test_geometries_end_to_end(data_dirs):
     assert count == len(graph) == 4
 
 
-def test_geometries_without_gpkg_raise(data_dirs):
+def test_geometries_without_gpkg_raise(data_dirs, config):
     with pytest.raises(FileNotFoundError):
-        GeometryTriplifier().run()
+        GeometryTriplifier(config).run()

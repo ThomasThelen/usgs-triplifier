@@ -2,8 +2,7 @@ from rdflib import BNode, Literal, URIRef
 from rdflib.namespace import OWL, RDF, RDFS, XSD
 
 from conftest import make_text_zip, parse_nt_gz
-from usgs_triplifier.config import config
-from usgs_triplifier.lib import geonames_crosswalk
+from usgs_triplifier.lib.geonames_crosswalk import GeoNamesCrosswalk
 from usgs_triplifier.lib.gnis.features_triplifier import FeaturesTriplifier
 from usgs_triplifier.lib.gnis.history_triplifier import HistoryTriplifier
 from usgs_triplifier.lib.gnis.names_triplifier import NamesTriplifier
@@ -31,12 +30,12 @@ def _national_file_zip(input_dir):
     )
 
 
-def test_features_from_legacy_national_file(data_dirs, monkeypatch):
+def test_features_from_legacy_national_file(data_dirs, monkeypatch, config):
     input_dir, output_dir = data_dirs
-    monkeypatch.setattr(config, "legacy_dump_date", "2021-08-25")
+    config.legacy_dump_date = "2021-08-25"
     _national_file_zip(input_dir)
 
-    FeaturesTriplifier().run()
+    FeaturesTriplifier(config).run()
 
     graph = parse_nt_gz(output_dir / "features.nt.gz")
     gnisf = config.prefix_list["gnisf"]
@@ -81,9 +80,9 @@ def test_features_from_legacy_national_file(data_dirs, monkeypatch):
     ]
 
 
-def test_names_from_legacy_all_names(data_dirs, monkeypatch):
+def test_names_from_legacy_all_names(data_dirs, monkeypatch, config):
     input_dir, output_dir = data_dirs
-    monkeypatch.setattr(config, "legacy_dump_date", "2021-08-25")
+    config.legacy_dump_date = "2021-08-25"
     make_text_zip(
         input_dir,
         "AllNames.zip",
@@ -95,7 +94,7 @@ def test_names_from_legacy_all_names(data_dirs, monkeypatch):
         ],
     )
 
-    NamesTriplifier().run()
+    NamesTriplifier(config).run()
 
     graph = parse_nt_gz(output_dir / "names.nt.gz")
     gnisf = config.prefix_list["gnisf"]
@@ -111,9 +110,9 @@ def test_names_from_legacy_all_names(data_dirs, monkeypatch):
     ]
 
 
-def test_history_from_legacy_description_history(data_dirs, monkeypatch):
+def test_history_from_legacy_description_history(data_dirs, monkeypatch, config):
     input_dir, output_dir = data_dirs
-    monkeypatch.setattr(config, "legacy_dump_date", "2021-08-25")
+    config.legacy_dump_date = "2021-08-25"
     make_text_zip(
         input_dir,
         "Feature_Description_History.zip",
@@ -124,7 +123,7 @@ def test_history_from_legacy_description_history(data_dirs, monkeypatch):
         ],
     )
 
-    HistoryTriplifier().run()
+    HistoryTriplifier(config).run()
 
     graph = parse_nt_gz(output_dir / "history.nt.gz")
     gnisf = config.prefix_list["gnisf"]
@@ -137,9 +136,9 @@ def test_history_from_legacy_description_history(data_dirs, monkeypatch):
     ]
 
 
-def test_units_from_legacy_govt_units(data_dirs, monkeypatch):
+def test_units_from_legacy_govt_units(data_dirs, monkeypatch, config):
     input_dir, output_dir = data_dirs
-    monkeypatch.setattr(config, "legacy_dump_date", "2021-08-25")
+    config.legacy_dump_date = "2021-08-25"
     make_text_zip(
         input_dir,
         "GOVT_UNITS.zip",
@@ -152,7 +151,7 @@ def test_units_from_legacy_govt_units(data_dirs, monkeypatch):
         ],
     )
 
-    UnitsTriplifier().run()
+    UnitsTriplifier(config).run()
 
     graph = parse_nt_gz(output_dir / "units.nt.gz")
     gnisf = config.prefix_list["gnisf"]
@@ -172,12 +171,12 @@ def test_units_from_legacy_govt_units(data_dirs, monkeypatch):
     ]
 
 
-def test_geonames_loader_reads_legacy_national_file(data_dirs, monkeypatch):
+def test_geonames_loader_reads_legacy_national_file(data_dirs, monkeypatch, config):
     input_dir, _ = data_dirs
-    monkeypatch.setattr(config, "legacy_dump_date", "2021-08-25")
+    config.legacy_dump_date = "2021-08-25"
     _national_file_zip(input_dir)
 
-    gnis = geonames_crosswalk._load_gnis()
+    gnis = GeoNamesCrosswalk(config)._load_gnis()
 
     # The zero-coordinate row is dropped; the state code passes through
     assert list(gnis["feature_id"]) == ["1414314"]

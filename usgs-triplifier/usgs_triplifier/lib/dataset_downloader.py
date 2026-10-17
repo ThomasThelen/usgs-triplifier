@@ -6,7 +6,6 @@ import boto3
 from botocore import UNSIGNED
 from botocore.config import Config as BotoConfig
 
-from ..config import config
 from ..usgs_products import UsgsProducts
 
 
@@ -53,7 +52,3 @@ class DatasetDownloader:
         self._log.info(f"Downloading {key}")
         self.s3.download_file(UsgsProducts.BUCKET, key, str(local_path))
         return local_path
-
-
-if __name__ == "__main__":
-    DatasetDownloader(config.input_directory).download()

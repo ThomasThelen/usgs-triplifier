@@ -115,14 +115,3 @@ class NamesTriplifier(Triplifier):
         :return: True for the official name, False otherwise.
         """
         return row.get("feature_name_official", "").lower() in ("official", "y")
-
-
-def main():
-    """
-    Writes names.nt.gz from the input directory.
-    """
-    NamesTriplifier().run()
-
-
-if __name__ == "__main__":
-    main()

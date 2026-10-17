@@ -6,12 +6,8 @@ from pathlib import Path
 import requests
 
 from conftest import make_text_zip
-from usgs_triplifier.config import config
 from usgs_triplifier.lib import geonames_crosswalk
-from usgs_triplifier.lib.geonames_crosswalk import (
-    US_DUMP_BASENAME,
-    build_geonames_crosswalk,
-)
+from usgs_triplifier.lib.geonames_crosswalk import GeoNamesCrosswalk
 from usgs_triplifier.output_files import OutputFiles
 
 SAMEAS = "<http://www.w3.org/2002/07/owl#sameAs>"
@@ -75,11 +71,11 @@ def _geonames_row(gid, name, lat, lon, state, gn_class="", alternates=""):
 
 
 def _write_us_zip(input_dir, rows):
-    with zipfile.ZipFile(input_dir / US_DUMP_BASENAME, "w") as zf:
+    with zipfile.ZipFile(input_dir / GeoNamesCrosswalk.US_DUMP_NAME, "w") as zf:
         zf.writestr("US.txt", "\n".join(rows) + "\n")
 
 
-def test_nearest_same_named_candidate_within_threshold_wins(data_dirs):
+def test_nearest_same_named_candidate_within_threshold_wins(data_dirs, config):
     input_dir, output_dir = data_dirs
     _gnis_zip(
         input_dir,
@@ -102,7 +98,7 @@ def test_nearest_same_named_candidate_within_threshold_wins(data_dirs):
     )
     (output_dir / OutputFiles.WIKIDATA_GEONAMES_PAIRS).write_text("3,999\n")
 
-    path = build_geonames_crosswalk()
+    path = GeoNamesCrosswalk(config).build()
 
     assert path == output_dir / OutputFiles.GEONAMES_CROSSWALK
     with gzip.open(path, "rt", encoding="utf-8") as f:
@@ -115,15 +111,15 @@ def test_nearest_same_named_candidate_within_threshold_wins(data_dirs):
     ]
 
 
-def test_missing_dump_is_not_fatal(data_dirs, monkeypatch):
+def test_missing_dump_is_not_fatal(data_dirs, monkeypatch, config):
     def boom(*a, **kw):
         raise requests.ConnectionError("no route to geonames")
 
     monkeypatch.setattr(geonames_crosswalk.requests, "get", boom)
-    assert build_geonames_crosswalk() is None
+    assert GeoNamesCrosswalk(config).build() is None
 
 
-def test_alignment_guardrails(data_dirs, caplog):
+def test_alignment_guardrails(data_dirs, caplog, config):
     input_dir, output_dir = data_dirs
     _gnis_zip(
         input_dir,
@@ -168,7 +164,7 @@ def test_alignment_guardrails(data_dirs, caplog):
     (output_dir / OutputFiles.WIKIDATA_GEONAMES_PAIRS).write_text("18,1818\n")
 
     with caplog.at_level(logging.INFO):
-        path = build_geonames_crosswalk()
+        path = GeoNamesCrosswalk(config).build()
 
     with gzip.open(path, "rt", encoding="utf-8") as f:
         links = {
@@ -185,6 +181,5 @@ def test_alignment_guardrails(data_dirs, caplog):
     assert links == expected
     # QA: the generated link agrees with the curated Wikidata pair
     assert (
-        "agrees with the curated Wikidata pairs on 1 of 1 features (100.0%)"
-        in caplog.text
+        "GeoNames links agree with Wikidata on 1 of 1 features (100.0%)" in caplog.text
     )

@@ -1,8 +1,7 @@
 import gzip
 import logging
 
-from usgs_triplifier.config import config
-from usgs_triplifier.lib.validation import validate_release
+from usgs_triplifier.lib.validation import ReleaseValidator
 
 LOD = "http://gnis-ld.org/lod"
 RDF_TYPE = "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>"
@@ -24,13 +23,13 @@ def _write(output_dir, name, lines):
         f.write("\n".join(lines) + "\n")
 
 
-def test_conforming_sample_passes(data_dirs):
+def test_conforming_sample_passes(data_dirs, config):
     _, output_dir = data_dirs
     _write(output_dir, "features.nt.gz", GOOD_FEATURE)
-    assert validate_release() is True
+    assert ReleaseValidator(config).validate() is True
 
 
-def test_violation_fails_and_is_logged(data_dirs, caplog):
+def test_violation_fails_and_is_logged(data_dirs, caplog, config):
     _, output_dir = data_dirs
     # officialName without a language tag violates the rdf:langString shape
     _write(
@@ -43,12 +42,12 @@ def test_violation_fails_and_is_logged(data_dirs, caplog):
         ],
     )
     with caplog.at_level(logging.ERROR):
-        assert validate_release() is False
+        assert ReleaseValidator(config).validate() is False
     assert "SHACL violation" in caplog.text
     assert "feature/2" in caplog.text
 
 
-def test_incomplete_elevation_bnode_is_caught(data_dirs):
+def test_incomplete_elevation_bnode_is_caught(data_dirs, config):
     _, output_dir = data_dirs
     lines = [
         f'<{LOD}/gnis/feature/3> <{LOD}/gnis/ontology/featureId> "3" .',
@@ -56,10 +55,10 @@ def test_incomplete_elevation_bnode_is_caught(data_dirs):
         '_:e3 <http://qudt.org/schema/qudt/numericValue> "12"^^<http://www.w3.org/2001/XMLSchema#double> .',
     ]
     _write(output_dir, "features.nt.gz", lines)
-    assert validate_release() is False
+    assert ReleaseValidator(config).validate() is False
 
 
-def test_upstream_date_quirk_is_only_a_warning(data_dirs, caplog):
+def test_upstream_date_quirk_is_only_a_warning(data_dirs, caplog, config):
     _, output_dir = data_dirs
     _write(
         output_dir,
@@ -70,7 +69,7 @@ def test_upstream_date_quirk_is_only_a_warning(data_dirs, caplog):
         ],
     )
     with caplog.at_level(logging.WARNING):
-        assert validate_release() is True
+        assert ReleaseValidator(config).validate() is True
     assert "SHACL warning" in caplog.text
 
 
@@ -90,7 +89,7 @@ def _wkt(node: str, wkt: str) -> str:
     return f'<{node}> <{GEOSPARQL}asWKT> "{CRS84}{wkt}"^^<{GEOSPARQL}wktLiteral> .'
 
 
-def test_point_and_multipoint_geometries_conform(data_dirs):
+def test_point_and_multipoint_geometries_conform(data_dirs, config):
     _, output_dir = data_dirs
     point = f"{GEO}/point/gnisf.1"
     multipoint = f"{GEO}/multipoint/gnisf.1"
@@ -111,10 +110,10 @@ def test_point_and_multipoint_geometries_conform(data_dirs):
             _wkt(multipoint, "MULTIPOINT ((-117.2 34.5), (-117.1 34.6))"),
         ],
     )
-    assert validate_release() is True
+    assert ReleaseValidator(config).validate() is True
 
 
-def test_three_dimensional_wkt_is_a_violation(data_dirs):
+def test_three_dimensional_wkt_is_a_violation(data_dirs, config):
     _, output_dir = data_dirs
     multipoint = f"{GEO}/multipoint/gnisf.1"
     _write(
@@ -125,12 +124,12 @@ def test_three_dimensional_wkt_is_a_violation(data_dirs):
             _wkt(multipoint, "MULTIPOINT Z ((-117.2 34.5 0))"),
         ],
     )
-    assert validate_release() is False
+    assert ReleaseValidator(config).validate() is False
 
 
-def test_sampling_respects_subject_budget(data_dirs, monkeypatch):
+def test_sampling_respects_subject_budget(data_dirs, monkeypatch, config):
     _, output_dir = data_dirs
-    monkeypatch.setattr(config, "shacl_sample_subjects", 1)
+    config.shacl_sample_subjects = 1
     # the second subject is malformed but sits past the sample budget
     _write(
         output_dir,
@@ -138,4 +137,4 @@ def test_sampling_respects_subject_budget(data_dirs, monkeypatch):
         GOOD_FEATURE
         + [f'<{LOD}/gnis/feature/9> <{LOD}/gnis/ontology/officialName> "Bad" .'],
     )
-    assert validate_release() is True
+    assert ReleaseValidator(config).validate() is True
