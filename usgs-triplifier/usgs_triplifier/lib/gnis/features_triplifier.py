@@ -1,5 +1,7 @@
 import gzip
+import logging
 from datetime import datetime
+from typing import ClassVar
 
 from rdflib import Graph, Literal, URIRef
 from rdflib.namespace import OWL, XSD
@@ -13,7 +15,9 @@ from .triplifier import (
     normalize_feature_id,
 )
 from ...config import config
+from ...output_files import OutputFiles
 from ...states import States
+from ...usgs_products import UsgsProducts
 
 # Class name mappings
 GNIS_CLASS_MAPPINGS = {
@@ -33,6 +37,8 @@ class FeaturesTriplifier:
     """
     Abstraction over creating triples out of the features dataset.
     """
+
+    _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
     def __init__(self):
         config.output_directory.mkdir(parents=True, exist_ok=True)
@@ -80,10 +86,11 @@ class FeaturesTriplifier:
             fields=field_mappings,
         )
         # Legacy dumps put the features in NationalFile
-        pattern = (
-            "NationalFile*.zip" if config.legacy_dump else "DomesticNames*_Text.zip"
+        triplify_text_files(
+            triples_mapping,
+            UsgsProducts.FEATURES.pattern_for(config.legacy_dump),
+            OutputFiles.FEATURES,
         )
-        triplify_text_files(triples_mapping, pattern, "features")
         self._write_aliases()
 
     def get_subject(self, row: dict, graph: Graph) -> str | None:
@@ -277,7 +284,7 @@ class FeaturesTriplifier:
         gnis = config.prefix_list["gnis"]
 
         # Stream the aliases out; millions of them accumulate over a full run
-        aliases_path = config.output_directory / "feature-aliases.nt.gz"
+        aliases_path = config.output_directory / OutputFiles.FEATURE_ALIASES
         with gzip.open(aliases_path, "wt", encoding="utf-8") as out:
             sink = NTStreamSink(out)
             for alias, features in feature_aliases.items():
@@ -294,7 +301,7 @@ class FeaturesTriplifier:
                         sink.add(
                             (alias_uri, gnis["disambiguatesTo"], gnisf[feature_id])
                         )
-        print(f"Aliases written to {aliases_path}")
+        self._log.info(f"Aliases written to {aliases_path}")
 
 
 def main():

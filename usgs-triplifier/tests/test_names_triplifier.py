@@ -66,12 +66,12 @@ def test_triplify_text_files_file_filter(data_dirs):
     )
 
     filtered = triplify_text_files(
-        _names_config(), "*_Text.zip", "filtered", file_filter="DoesNotMatch"
+        _names_config(), "*_Text.zip", "filtered.nt.gz", file_filter="DoesNotMatch"
     )
     assert len(filtered) == 0
 
     matched = triplify_text_files(
-        _names_config(), "*_Text.zip", "matched", file_filter="Sample"
+        _names_config(), "*_Text.zip", "matched.nt.gz", file_filter="Sample"
     )
     assert len(matched) > 0
     assert (output_dir / "matched.nt.gz").exists()

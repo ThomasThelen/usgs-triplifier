@@ -95,7 +95,7 @@ def test_add_pairs_wraps_scalars():
 def test_triplify_text_files_without_zips_raises(data_dirs):
     cfg = TriplifierConfig(subject=lambda row, graph: None, fields={})
     with pytest.raises(FileNotFoundError):
-        triplify_text_files(cfg, "Nope_*_Text.zip", "nothing")
+        triplify_text_files(cfg, "Nope_*_Text.zip", "nothing.nt.gz")
 
 
 def _test_config():
@@ -137,7 +137,7 @@ def test_triplify_text_files_end_to_end(data_dirs):
         ],
     )
 
-    graph = triplify_text_files(_test_config(), "Test_*.zip", "test-output")
+    graph = triplify_text_files(_test_config(), "Test_*.zip", "test-output.nt.gz")
 
     output_path = output_dir / "test-output.nt.gz"
     assert output_path.exists()
@@ -165,4 +165,4 @@ def test_triplify_text_files_missing_required_value_raises(data_dirs):
         ["feature_id|name|code|note", "1||a|"],
     )
     with pytest.raises(ValueError, match="Missing value"):
-        triplify_text_files(_test_config(), "Test_*.zip", "test-output")
+        triplify_text_files(_test_config(), "Test_*.zip", "test-output.nt.gz")

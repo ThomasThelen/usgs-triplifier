@@ -12,6 +12,8 @@ from tqdm import tqdm
 
 from .triplifier import NTStreamSink, normalize_feature_id
 from ...config import config
+from ...output_files import OutputFiles
+from ...usgs_products import UsgsProducts
 
 logger = logging.getLogger(__name__)
 
@@ -25,17 +27,16 @@ BATCH_SIZE = 100_000
 CRS84 = "<http://www.opengis.net/def/crs/OGC/1.3/CRS84>"
 
 
-def get_gpkg_zip_files(pattern: str = "*_GPKG.zip") -> list[Path]:
+def get_gpkg_zip_files() -> list[Path]:
     """
-    Get list of GPKG zip files from the input directory.
+    Lists the GeoPackage zips in the input directory.
 
-    :param pattern: Glob pattern to match zip files.
-    :return: List of paths to zip files.
+    :return: Paths of the zips matching the GeoPackage pattern, sorted.
     """
-    return sorted(config.input_directory.glob(pattern))
+    return sorted(config.input_directory.glob(UsgsProducts.GEOPACKAGE.pattern))
 
 
-def triplify_geometries(output_basename: str = "geometries") -> NTStreamSink:
+def triplify_geometries(output_name: str = OutputFiles.GEOMETRIES) -> NTStreamSink:
     """
     Stream a multipoint geometry for every feature in the staged GeoPackages.
 
@@ -44,7 +45,8 @@ def triplify_geometries(output_basename: str = "geometries") -> NTStreamSink:
     Z coordinates, but they are always 0 (GNIS keeps elevation as an
     attribute), so they are dropped on read.
 
-    :param output_basename: Basename for the output file.
+    :param output_name: Name of the gzipped N-Triples file written to the
+        output directory.
     :return: The sink the triples were streamed through.
     :raises FileNotFoundError: If no GPKG zip is staged.
     """
@@ -55,7 +57,7 @@ def triplify_geometries(output_basename: str = "geometries") -> NTStreamSink:
 
     output_dir = config.output_directory
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{output_basename}.nt.gz"
+    output_path = output_dir / output_name
 
     with gzip.open(output_path, "wt", encoding="utf-8") as out:
         sink = NTStreamSink(out)

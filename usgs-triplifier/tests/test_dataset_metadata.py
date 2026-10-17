@@ -4,16 +4,9 @@ from rdflib import Graph, Literal, URIRef
 from rdflib.namespace import DCAT, DCTERMS, PROV, VOID, RDF, XSD
 
 from usgs_triplifier.config import config
-from usgs_triplifier.lib.dataset_downloader import (
-    GPKG_KEY,
-    LEGACY_DATASETS,
-    TEXT_DATASETS,
-)
-from usgs_triplifier.lib.dataset_metadata import (
-    METADATA_BASENAME,
-    build_id_for,
-    write_dataset_metadata,
-)
+from usgs_triplifier.lib.dataset_metadata import build_id_for, write_dataset_metadata
+from usgs_triplifier.output_files import OutputFiles
+from usgs_triplifier.usgs_products import UsgsProducts
 
 BUILD_TIME = datetime(2026, 8, 10, 12, 30, tzinfo=timezone.utc)
 BUILD_ID = "260810"
@@ -21,7 +14,7 @@ BUILD_ID = "260810"
 
 def _write_and_parse(output_dir, archive_path=None):
     path = write_dataset_metadata(build_time=BUILD_TIME, archive_path=archive_path)
-    assert path == output_dir / METADATA_BASENAME
+    assert path == output_dir / OutputFiles.METADATA
     graph = Graph()
     graph.parse(path, format="turtle")
     return graph
@@ -55,8 +48,8 @@ def test_release_records_sources_and_pipeline(data_dirs):
     release = URIRef(f"{config.lod_base}/gnis/release/{BUILD_ID}")
 
     sources = {str(s) for s in graph.objects(release, DCTERMS.source)}
-    assert len(sources) == 1 + len(TEXT_DATASETS)
-    assert any(GPKG_KEY in s for s in sources)
+    assert len(sources) == 5
+    assert any(UsgsProducts.GEOPACKAGE.key in s for s in sources)
     assert all(s.startswith("https://") for s in sources)
 
     activities = list(graph.objects(release, PROV.wasGeneratedBy))
@@ -71,7 +64,10 @@ def test_legacy_dump_release_records_the_legacy_sources(data_dirs, monkeypatch):
     release = URIRef(f"{config.lod_base}/gnis/release/{BUILD_ID}")
 
     sources = {str(s) for s in graph.objects(release, DCTERMS.source)}
-    assert sources == {f"https://prd-tnm.s3.amazonaws.com/{k}" for k in LEGACY_DATASETS}
+    assert sources == {
+        f"https://prd-tnm.s3.amazonaws.com/{p.legacy_key}"
+        for p in UsgsProducts.text_products()
+    }
 
 
 def test_distributions_describe_output_files(data_dirs):
@@ -85,7 +81,7 @@ def test_distributions_describe_output_files(data_dirs):
     titles = {str(t) for d in distributions for t in graph.objects(d, DCTERMS.title)}
     assert titles == {"features.nt.gz", "names.nt.gz"}
     # The metadata file does not describe itself
-    assert METADATA_BASENAME not in titles
+    assert OutputFiles.METADATA not in titles
 
     features = URIRef(f"{release}/features")
     sizes = list(graph.objects(features, DCAT.byteSize))

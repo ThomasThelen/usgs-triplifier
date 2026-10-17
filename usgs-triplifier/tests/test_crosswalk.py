@@ -4,11 +4,8 @@ import requests
 
 from usgs_triplifier.config import config
 from usgs_triplifier.lib import crosswalk
-from usgs_triplifier.lib.crosswalk import (
-    CROSSWALK_BASENAME,
-    GEONAMES_REFERENCE_BASENAME,
-    build_crosswalk,
-)
+from usgs_triplifier.lib.crosswalk import build_crosswalk
+from usgs_triplifier.output_files import OutputFiles
 
 WD = "http://www.wikidata.org/entity"
 
@@ -64,7 +61,7 @@ def test_harvest_writes_ntriples_links(data_dirs, monkeypatch):
 
     path = build_crosswalk()
 
-    assert path == output_dir / CROSSWALK_BASENAME
+    assert path == output_dir / OutputFiles.WIKIDATA_CROSSWALK
     with gzip.open(path, "rt", encoding="utf-8") as f:
         lines = f.read().splitlines()
     feature = f"<{config.lod_base}/gnis/feature/1414314>"
@@ -75,7 +72,9 @@ def test_harvest_writes_ntriples_links(data_dirs, monkeypatch):
     )
     # GeoNames pairs are QA reference only — never emitted as triples
     assert not any("sws.geonames.org" in line for line in lines)
-    reference = (output_dir / GEONAMES_REFERENCE_BASENAME).read_text().splitlines()
+    reference = (
+        (output_dir / OutputFiles.WIKIDATA_GEONAMES_PAIRS).read_text().splitlines()
+    )
     assert "1414314,5868589" in reference
     assert (
         f"{feature} <http://www.w3.org/2002/07/owl#sameAs> <https://whosonfirst.org/id/102030739/> ."
@@ -106,4 +105,4 @@ def test_harvest_failure_is_not_fatal(data_dirs, monkeypatch):
     monkeypatch.setattr(crosswalk.requests, "post", boom)
     monkeypatch.setattr(crosswalk.time, "sleep", lambda *_: None)
     assert build_crosswalk() is None
-    assert not (config.output_directory / CROSSWALK_BASENAME).exists()
+    assert not (config.output_directory / OutputFiles.WIKIDATA_CROSSWALK).exists()

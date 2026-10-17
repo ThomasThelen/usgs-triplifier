@@ -1,5 +1,6 @@
 import csv
 import gzip
+import logging
 import tempfile
 import zipfile
 from pathlib import Path
@@ -9,11 +10,13 @@ from tqdm import tqdm
 from .triplifier import NTStreamSink, TriplifierConfig, _process_row
 from ...config import config
 
+logger = logging.getLogger(__name__)
+
 
 def triplify_text_files(
     triplifier_config: TriplifierConfig,
     file_pattern: str,
-    output_basename: str,
+    output_name: str,
     file_filter: str | None = None,
 ) -> NTStreamSink:
     """
@@ -21,7 +24,8 @@ def triplify_text_files(
 
     :param triplifier_config: Configuration for field mappings.
     :param file_pattern: Glob pattern to match zip files (e.g., '*_Text.zip').
-    :param output_basename: Basename for the output file.
+    :param output_name: Name of the gzipped N-Triples file written to the
+        output directory.
     :param file_filter: Optional substring filter for text file names within zips.
     :return: The sink the triples were streamed through.
     :raises FileNotFoundError: If no zip matches the pattern.
@@ -33,19 +37,19 @@ def triplify_text_files(
             f"No text zip files matching {file_pattern} in {config.input_directory}"
         )
 
-    print(f"Found {len(zip_files)} text zip files")
+    logger.info(f"Found {len(zip_files)} text zip files")
 
     output_dir = config.output_directory
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{output_basename}.nt.gz"
+    output_path = output_dir / output_name
 
     with gzip.open(output_path, "wt", encoding="utf-8") as out:
         sink = NTStreamSink(out)
         for zip_path in zip_files:
-            print(f"Processing {zip_path.name}")
+            logger.info(f"Processing {zip_path.name}")
             _process_text_zip(zip_path, triplifier_config, sink, file_filter)
 
-    print(f"Output written to {output_path}")
+    logger.info(f"Output written to {output_path}")
     return sink
 
 
@@ -72,12 +76,12 @@ def _process_text_zip(
             txt_files = [f for f in txt_files if file_filter in f]
 
         if not txt_files:
-            print(f"  No matching text files found in {zip_path.name}")
+            logger.warning(f"No matching text files found in {zip_path.name}")
             return
 
         with tempfile.TemporaryDirectory() as tmpdir:
             for txt_file in txt_files:
-                print(f"  Extracting {txt_file}")
+                logger.info(f"Extracting {txt_file}")
                 zf.extract(txt_file, tmpdir)
                 txt_path = Path(tmpdir) / txt_file
                 _process_text_file(txt_path, triplifier_config, sink)

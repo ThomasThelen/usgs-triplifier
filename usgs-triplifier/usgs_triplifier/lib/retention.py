@@ -4,12 +4,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..config import config
-from .dataset_metadata import (
-    R_HISTORICAL_DUMP,
-    R_MAIN_DUMP,
-    RETAINED_BASENAME,
-    build_id_for,
-)
+from ..output_files import OutputFiles
+from .dataset_metadata import build_id_for
 
 # Blank-node closure is shallow (feature -> elevation node); passes are a
 # safety bound, not an expected depth.
@@ -37,9 +33,11 @@ def build_retained(build_time: datetime | None = None) -> Path | None:
     build_id = build_id_for(build_time)
 
     archive_dir = config.archive_output_directory
-    current_dump = archive_dir / f"gnis-ld-{build_id}.nt.gz"
-    previous_main = _previous_dump(archive_dir, R_MAIN_DUMP, build_id)
-    previous_historical = _previous_dump(archive_dir, R_HISTORICAL_DUMP, build_id)
+    current_dump = archive_dir / OutputFiles.release(build_id)
+    previous_main = _previous_dump(archive_dir, OutputFiles.RELEASE, build_id)
+    previous_historical = _previous_dump(
+        archive_dir, OutputFiles.HISTORICAL_RELEASE, build_id
+    )
     if previous_main is None:
         return None
 
@@ -54,14 +52,12 @@ def build_retained(build_time: datetime | None = None) -> Path | None:
     # Records newly dropped from the previous release, plus tombstones
     newly_dropped = _dropped_records(previous_main, current_subjects)
     lines.extend(newly_dropped)
-    previous_release_uri = (
-        f"{config.lod_base}/gnis/release/{R_MAIN_DUMP.match(previous_main.name)[1]}"
-    )
+    previous_release_uri = f"{config.lod_base}/gnis/release/{OutputFiles.RELEASE.match(previous_main.name)[1]}"
     lines.extend(_tombstones(newly_dropped, previous_release_uri))
 
     # Always (ewrite the file so a stale one from a previous run is never
     # loaded, but only report a path when there is something to publish.
-    output_path = config.output_directory / RETAINED_BASENAME
+    output_path = config.output_directory / OutputFiles.RETAINED
     with gzip.open(output_path, "wt", encoding="utf-8") as out:
         for line in lines:
             out.write(line + "\n")

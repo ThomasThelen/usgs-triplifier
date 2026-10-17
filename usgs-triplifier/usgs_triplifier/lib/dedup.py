@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 
 from ..config import config
-from .dataset_metadata import RETAINED_BASENAME
+from ..output_files import OutputFiles
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ def remove_duplicate_triples() -> int:
     n_removed = 0
     for path in sorted(config.output_directory.glob("*.nt.gz")):
         # Retained records are diffed from already-deduplicated dumps
-        if path.name == RETAINED_BASENAME:
+        if path.name == OutputFiles.RETAINED:
             continue
         n_removed += _dedupe_file(path, seen)
     logger.info(f"Removed {n_removed} duplicate triples")

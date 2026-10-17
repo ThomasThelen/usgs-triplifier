@@ -1,33 +1,39 @@
-from usgs_triplifier.lib import dataset_downloader
-from usgs_triplifier.lib.dataset_downloader import (
-    BUCKET,
-    GPKG_KEY,
-    TEXT_DATASETS,
-    DatasetDownloader,
-)
+from usgs_triplifier.lib.dataset_downloader import DatasetDownloader
+from usgs_triplifier.usgs_products import UsgsProducts
 
 
 class FakeS3:
+    """Records download_file calls instead of contacting S3."""
+
     def __init__(self):
         self.calls = []
 
-    def download_file(self, bucket, key, path):
+    def download_file(self, bucket: str, key: str, path: str) -> None:
+        """
+        Records one download request.
+
+        :param bucket: Bucket name.
+        :param key: Object key.
+        :param path: Local path the object would be saved to.
+        """
         self.calls.append((bucket, key, path))
 
 
-def _fake_client(monkeypatch):
+def test_download_fetches_gpkg_and_text_datasets(tmp_path):
     fake = FakeS3()
-    monkeypatch.setattr(dataset_downloader.boto3, "client", lambda *a, **kw: fake)
-    return fake
+    download_dir = tmp_path / "input"
 
-
-def test_download_fetches_gpkg_and_text_datasets(data_dirs, monkeypatch):
-    input_dir, _ = data_dirs
-    fake = _fake_client(monkeypatch)
-
-    DatasetDownloader.download()
+    paths = DatasetDownloader(download_dir, s3=fake).download()
 
     keys = [call[1] for call in fake.calls]
-    assert keys == [GPKG_KEY, *TEXT_DATASETS]
-    assert all(call[0] == BUCKET for call in fake.calls)
-    assert all(call[2].startswith(str(input_dir)) for call in fake.calls)
+    assert keys == [
+        UsgsProducts.GEOPACKAGE.key,
+        UsgsProducts.FEATURES.key,
+        UsgsProducts.NAMES.key,
+        UsgsProducts.UNITS.key,
+        UsgsProducts.HISTORY.key,
+    ]
+    assert all(call[0] == UsgsProducts.BUCKET for call in fake.calls)
+    assert [str(p) for p in paths] == [call[2] for call in fake.calls]
+    assert all(p.parent == download_dir for p in paths)
+    assert download_dir.is_dir()

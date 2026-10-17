@@ -39,7 +39,7 @@ def main() -> None:
         )
     elif config.download_data:
         logger.info("Downloading...")
-        DatasetDownloader.download()
+        DatasetDownloader(config.input_directory).download()
     else:
         logger.info("DOWNLOAD_DATA is disabled, skipping download")
 

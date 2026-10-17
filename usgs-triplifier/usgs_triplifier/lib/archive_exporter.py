@@ -5,7 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..config import config
-from .dataset_metadata import RETAINED_BASENAME, build_id_for
+from ..output_files import OutputFiles
+from .dataset_metadata import build_id_for
 
 
 def export_release(build_time: datetime | None = None) -> Path:
@@ -31,14 +32,14 @@ def export_release(build_time: datetime | None = None) -> Path:
 
     archive_dir = config.archive_output_directory
     archive_dir.mkdir(parents=True, exist_ok=True)
-    dump_path = archive_dir / f"gnis-ld-{build_id}.nt.gz"
+    dump_path = archive_dir / OutputFiles.release(build_id)
 
     n_triples = 0
     with gzip.open(dump_path, "wt", encoding="utf-8") as out:
         # The generated files are already deduplicated N-Triples, so the
         # export is a pure streaming concatenation.
         for nt_path in sorted(config.output_directory.glob("*.nt.gz")):
-            if nt_path.name == RETAINED_BASENAME:
+            if nt_path.name == OutputFiles.RETAINED:
                 continue
             with gzip.open(nt_path, "rt", encoding="utf-8") as f:
                 for line in f:
@@ -66,9 +67,9 @@ def export_historical(build_time: datetime | None = None) -> Path:
 
     archive_dir = config.archive_output_directory
     archive_dir.mkdir(parents=True, exist_ok=True)
-    dump_path = archive_dir / f"gnis-ld-historical-{build_id}.nt.gz"
+    dump_path = archive_dir / OutputFiles.historical_release(build_id)
 
-    retained_path = config.output_directory / RETAINED_BASENAME
+    retained_path = config.output_directory / OutputFiles.RETAINED
     n_triples = 0
     with gzip.open(retained_path, "rt", encoding="utf-8") as f:
         for line in f:
@@ -88,7 +89,7 @@ def _write_sidecar(dump_path: Path, build_time: datetime, n_triples: int) -> Non
         "triples": f"{n_triples:,}",
         "size": _format_size(dump_path.stat().st_size),
     }
-    sidecar_path = dump_path.parent / (dump_path.name.replace(".nt.gz", ".meta.json"))
+    sidecar_path = OutputFiles.sidecar_for(dump_path)
     sidecar_path.write_text(json.dumps(sidecar, indent=2) + "\n")
 
 

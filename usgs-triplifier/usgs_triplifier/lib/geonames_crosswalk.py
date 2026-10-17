@@ -10,16 +10,13 @@ import pandas as pd
 import requests
 
 from ..config import config
+from ..output_files import OutputFiles
 from ..states import States
-from .crosswalk import GEONAMES_REFERENCE_BASENAME, OWL_SAMEAS
+from ..usgs_products import UsgsProducts
+from .crosswalk import OWL_SAMEAS
 from .gnis.triplifier import normalize_feature_id
 
-GEONAMES_CROSSWALK_BASENAME = "geonames-crosswalk.nt.gz"
 US_DUMP_BASENAME = "US.zip"
-
-# Where the QA step records the matches that disagree with the curated
-# Wikidata pairs.
-QA_REPORT_BASENAME = "geonames-qa-disagreements.csv"
 
 # Word-level expansions applied during name normalization. Both gazetteers
 # abbreviate inconsistently ("St. Marys River" vs "Saint Marys River").
@@ -161,7 +158,7 @@ def build_geonames_crosswalk() -> Path | None:
 
     matches = _resolve(pairs)
 
-    output_path = config.output_directory / GEONAMES_CROSSWALK_BASENAME
+    output_path = config.output_directory / OutputFiles.GEONAMES_CROSSWALK
     n_links = 0
     with gzip.open(output_path, "wt", encoding="utf-8") as out:
         for row in matches.itertuples():
@@ -187,7 +184,9 @@ def _with_variant_names(gnis: pd.DataFrame) -> pd.DataFrame:
     names still align, with a note in the log.
     """
     frames = []
-    for zip_path in sorted(config.input_directory.glob("AllNames*.zip")):
+    for zip_path in sorted(
+        config.input_directory.glob(UsgsProducts.NAMES.pattern_for(config.legacy_dump))
+    ):
         with zipfile.ZipFile(zip_path, "r") as zf:
             txt_names = [n for n in zf.namelist() if n.endswith(".txt")]
             for txt_name in txt_names:
@@ -318,7 +317,7 @@ def _resolve(pairs: pd.DataFrame) -> pd.DataFrame:
 
 def _reference_links() -> dict[str, set[str]]:
     """Curated GeoNames ids per feature id, from the harvest's QA reference."""
-    reference_path = config.output_directory / GEONAMES_REFERENCE_BASENAME
+    reference_path = config.output_directory / OutputFiles.WIKIDATA_GEONAMES_PAIRS
     if not reference_path.exists():
         return {}
     reference: dict[str, set[str]] = {}
@@ -350,7 +349,7 @@ def _qa_against_reference(matches: pd.DataFrame) -> None:
         f"QA: alignment agrees with the curated Wikidata pairs on {agree} of "
         f"{len(overlap)} features ({100 * agree / len(overlap):.1f}%)"
     )
-    report_path = config.output_directory / QA_REPORT_BASENAME
+    report_path = config.output_directory / OutputFiles.GEONAMES_QA_REPORT
     with open(report_path, "w", encoding="utf-8") as out:
         out.write("feature_id,aligned_geonameid,curated_geonameids\n")
         for row in disagreements:
@@ -390,7 +389,7 @@ def _load_gnis() -> pd.DataFrame:
     if config.legacy_dump:
         return _load_gnis_legacy()
     gnis = _read_gnis_text(
-        "DomesticNames*_Text.zip",
+        UsgsProducts.FEATURES.pattern,
         [
             "feature_id",
             "feature_name",
@@ -418,7 +417,7 @@ def _load_gnis_legacy() -> pd.DataFrame:
     :return: A dataframe of the gnis features
     """
     gnis = _read_gnis_text(
-        "NationalFile*.zip",
+        UsgsProducts.FEATURES.legacy_pattern,
         [
             "FEATURE_ID",
             "FEATURE_NAME",

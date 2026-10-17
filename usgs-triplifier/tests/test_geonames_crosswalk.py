@@ -8,12 +8,11 @@ import requests
 from conftest import make_text_zip
 from usgs_triplifier.config import config
 from usgs_triplifier.lib import geonames_crosswalk
-from usgs_triplifier.lib.crosswalk import GEONAMES_REFERENCE_BASENAME
 from usgs_triplifier.lib.geonames_crosswalk import (
-    GEONAMES_CROSSWALK_BASENAME,
     US_DUMP_BASENAME,
     build_geonames_crosswalk,
 )
+from usgs_triplifier.output_files import OutputFiles
 
 SAMEAS = "<http://www.w3.org/2002/07/owl#sameAs>"
 
@@ -101,11 +100,11 @@ def test_nearest_same_named_candidate_within_threshold_wins(data_dirs):
             _geonames_row(444, "Linked Lake", 39.0, -121.0, "CA"),
         ],
     )
-    (output_dir / GEONAMES_REFERENCE_BASENAME).write_text("3,999\n")
+    (output_dir / OutputFiles.WIKIDATA_GEONAMES_PAIRS).write_text("3,999\n")
 
     path = build_geonames_crosswalk()
 
-    assert path == output_dir / GEONAMES_CROSSWALK_BASENAME
+    assert path == output_dir / OutputFiles.GEONAMES_CROSSWALK
     with gzip.open(path, "rt", encoding="utf-8") as f:
         lines = f.read().splitlines()
     # nearest candidate wins, one link per feature — including features that
@@ -166,7 +165,7 @@ def test_alignment_guardrails(data_dirs, caplog):
             _geonames_row(1818, "Check Lake", 44.001, -120.0, "CA", "H"),
         ],
     )
-    (output_dir / GEONAMES_REFERENCE_BASENAME).write_text("18,1818\n")
+    (output_dir / OutputFiles.WIKIDATA_GEONAMES_PAIRS).write_text("18,1818\n")
 
     with caplog.at_level(logging.INFO):
         path = build_geonames_crosswalk()

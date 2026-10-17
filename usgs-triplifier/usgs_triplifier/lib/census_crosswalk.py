@@ -30,10 +30,9 @@ import pandas as pd
 import requests
 
 from ..config import config
+from ..output_files import OutputFiles
 from .crosswalk import OWL_SAMEAS
 from .gnis.triplifier import normalize_feature_id
-
-CENSUS_CROSSWALK_BASENAME = "census-crosswalk.nt.gz"
 
 GAZETTEER_FILES = ["Gaz_counties_national.zip", "Gaz_place_national.zip"]
 
@@ -62,7 +61,7 @@ def build_census_crosswalk() -> Path | None:
     gazetteer = pd.concat(frames, ignore_index=True)
     geoid_property = f"<{config.lod_base}/gnis/ontology/censusGeoid>"
 
-    output_path = config.output_directory / CENSUS_CROSSWALK_BASENAME
+    output_path = config.output_directory / OutputFiles.CENSUS_CROSSWALK
     n_links = 0
     with gzip.open(output_path, "wt", encoding="utf-8") as out:
         for row in gazetteer.itertuples():

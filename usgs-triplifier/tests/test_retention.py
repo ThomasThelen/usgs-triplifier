@@ -5,7 +5,7 @@ import pytest
 
 from usgs_triplifier.config import config
 from usgs_triplifier.lib.archive_exporter import export_historical
-from usgs_triplifier.lib.dataset_metadata import RETAINED_BASENAME
+from usgs_triplifier.output_files import OutputFiles
 from usgs_triplifier.lib.retention import build_retained
 
 BUILD_TIME = datetime(2026, 7, 1, tzinfo=timezone.utc)
@@ -51,7 +51,7 @@ def _write_dump(archive_dir, name, lines):
 
 
 def _retained_lines():
-    with gzip.open(config.output_directory / RETAINED_BASENAME, "rt") as f:
+    with gzip.open(config.output_directory / OutputFiles.RETAINED, "rt") as f:
         return [line for line in f.read().splitlines() if line.strip()]
 
 

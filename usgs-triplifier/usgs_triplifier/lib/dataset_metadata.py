@@ -1,5 +1,4 @@
 import json
-import re
 from datetime import datetime, timezone
 from importlib import metadata as importlib_metadata
 from pathlib import Path
@@ -8,20 +7,8 @@ from rdflib import BNode, Graph, Literal, URIRef
 from rdflib.namespace import DCAT, DCTERMS, PROV, RDF, RDFS, VOID, XSD
 
 from ..config import config
-from .dataset_downloader import BUCKET, GPKG_KEY, LEGACY_DATASETS, TEXT_DATASETS
-
-S3_BASE = f"https://{BUCKET}.s3.amazonaws.com"
-
-METADATA_BASENAME = "dataset-metadata.ttl"
-
-# Records carried forward from previous releases for features dropped
-# upstream (written by retention, loaded into GraphDB with the rest, and
-# published as the gnis-ld-historical-<yymmdd>.nt.gz companion dump)
-RETAINED_BASENAME = "retained-features.nt.gz"
-
-# The release-dump naming contract shared with the website's archive scanner
-R_MAIN_DUMP = re.compile(r"^gnis-ld-(\d{6})\.nt\.gz$")
-R_HISTORICAL_DUMP = re.compile(r"^gnis-ld-historical-(\d{6})\.nt\.gz$")
+from ..output_files import OutputFiles
+from ..usgs_products import UsgsProducts
 
 
 def build_id_for(build_time: datetime) -> str:
@@ -102,9 +89,8 @@ def write_dataset_metadata(
     graph.add((activity, RDF.type, PROV.Activity))
     graph.add((activity, RDFS.label, Literal(f"usgs-triplifier {_pipeline_version()}")))
 
-    sources = LEGACY_DATASETS if config.legacy_dump else [GPKG_KEY, *TEXT_DATASETS]
-    for key in sources:
-        graph.add((release_uri, DCTERMS.source, URIRef(f"{S3_BASE}/{key}")))
+    for url in UsgsProducts.source_urls(config.legacy_dump):
+        graph.add((release_uri, DCTERMS.source, URIRef(url)))
 
     # The published release dump and its historical companion (records
     # retained for features dropped upstream), downloadable from the website
@@ -128,7 +114,7 @@ def write_dataset_metadata(
 
     # Files this build produced
     for nt_path in sorted(config.output_directory.glob("*.nt.gz")):
-        if nt_path.name == RETAINED_BASENAME:
+        if nt_path.name == OutputFiles.RETAINED:
             continue
         distribution = URIRef(f"{release_uri}/{nt_path.name.replace('.nt.gz', '')}")
         graph.add((release_uri, DCAT.distribution, distribution))
@@ -147,7 +133,7 @@ def write_dataset_metadata(
     # build for it to stay queryable.
     _add_archived_releases(graph, dataset_uri, skip_id=build_id)
 
-    output_path = config.output_directory / METADATA_BASENAME
+    output_path = config.output_directory / OutputFiles.METADATA
     graph.serialize(destination=str(output_path), format="turtle")
     return output_path
 
@@ -158,7 +144,7 @@ def _add_archived_releases(graph: Graph, dataset_uri: URIRef, skip_id: str) -> N
     if not archive_dir.is_dir():
         return
     for dump_path in sorted(archive_dir.glob("*.nt.gz")):
-        m_dump = R_MAIN_DUMP.match(dump_path.name)
+        m_dump = OutputFiles.RELEASE.match(dump_path.name)
         if not m_dump or m_dump[1] == skip_id:
             continue
         release_id = m_dump[1]
@@ -177,7 +163,7 @@ def _add_archived_releases(graph: Graph, dataset_uri: URIRef, skip_id: str) -> N
             )
         )
 
-        historical = dump_path.with_name(f"gnis-ld-historical-{release_id}.nt.gz")
+        historical = dump_path.with_name(OutputFiles.historical_release(release_id))
         for dump in [dump_path, *([historical] if historical.exists() else [])]:
             download_url = URIRef(f"{config.site_base}/archive/{dump.name}")
             graph.add((release_uri, DCAT.distribution, download_url))
@@ -197,7 +183,7 @@ def _add_archived_releases(graph: Graph, dataset_uri: URIRef, skip_id: str) -> N
 
 def _published(dump_path: Path, release_id: str) -> str:
     """Release date: the sidecar's value, else derived from the YYMMDD id."""
-    sidecar = dump_path.with_name(dump_path.name.replace(".nt.gz", ".meta.json"))
+    sidecar = OutputFiles.sidecar_for(dump_path)
     try:
         published = json.loads(sidecar.read_text()).get("published")
         if published:

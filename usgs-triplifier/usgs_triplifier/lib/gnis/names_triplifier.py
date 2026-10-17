@@ -14,6 +14,8 @@ from rdflib.namespace import XSD
 from .text_triplifier import triplify_text_files
 from .triplifier import TriplifierConfig, FieldDescriptor, normalize_feature_id
 from ...config import config
+from ...output_files import OutputFiles
+from ...usgs_products import UsgsProducts
 
 
 class NamesTriplifier:
@@ -45,10 +47,11 @@ class NamesTriplifier:
             subject=self.get_subject,
             fields=field_mappings,
         )
-        # The current product is AllNames_National_Text.zip; legacy dumps
-        # name it AllNames.zip
-        pattern = "AllNames*.zip" if config.legacy_dump else "AllNames*_Text.zip"
-        triplify_text_files(triples_config, pattern, "names")
+        triplify_text_files(
+            triples_config,
+            UsgsProducts.NAMES.pattern_for(config.legacy_dump),
+            OutputFiles.NAMES,
+        )
 
     @staticmethod
     def get_subject(row: dict, graph: Graph) -> str | None:

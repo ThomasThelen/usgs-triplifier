@@ -7,10 +7,8 @@ from pathlib import Path
 import requests
 
 from ..config import config
+from ..output_files import OutputFiles
 from .gnis.triplifier import normalize_feature_id
-
-CROSSWALK_BASENAME = "crosswalk.nt.gz"
-GEONAMES_REFERENCE_BASENAME = "wikidata-geonames.csv"
 
 QUERY = """SELECT ?item ?gnisId ?article ?geonamesId ?wofId ?locId ?tgnId WHERE {
   ?item wdt:P590 ?gnisId .
@@ -56,8 +54,8 @@ def build_crosswalk() -> Path | None:
         logger.warning("Wikidata crosswalk harvest failed, skipping")
         return None
 
-    output_path = config.output_directory / CROSSWALK_BASENAME
-    reference_path = config.output_directory / GEONAMES_REFERENCE_BASENAME
+    output_path = config.output_directory / OutputFiles.WIKIDATA_CROSSWALK
+    reference_path = config.output_directory / OutputFiles.WIKIDATA_GEONAMES_PAIRS
     n_links = 0
     n_reference = 0
     with (

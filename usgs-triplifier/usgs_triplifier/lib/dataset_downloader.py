@@ -1,60 +1,59 @@
+import logging
+from pathlib import Path
+from typing import ClassVar
+
 import boto3
 from botocore import UNSIGNED
 from botocore.config import Config as BotoConfig
 
 from ..config import config
-
-# S3 bucket for USGS data
-BUCKET = "prd-tnm"
-
-# GeoPackage datafile location
-GPKG_KEY = "StagedProducts/GeographicNames/FullModel/Gazetteer_National_GPKG.zip"
-
-# Textfile dataset locations
-TEXT_DATASETS = [
-    "StagedProducts/GeographicNames/DomesticNames/DomesticNames_National_Text.zip",
-    "StagedProducts/GeographicNames/Topical/AllNames_National_Text.zip",
-    "StagedProducts/GeographicNames/Topical/GovernmentUnits_National_Text.zip",
-    "StagedProducts/GeographicNames/Topical/FeatureDescriptionHistory_National_Text.zip",
-]
-
-# Locations of the legacy dump files
-LEGACY_DATASETS = [
-    "StagedProducts/GeographicNames/Archive/MainDomestic/NationalFile.zip",
-    "StagedProducts/GeographicNames/Archive/TopicalGazetteers/AllNames.zip",
-    "StagedProducts/GeographicNames/Archive/TopicalGazetteers/GOVT_UNITS.zip",
-    "StagedProducts/GeographicNames/Archive/TopicalGazetteers/Feature_Description_History.zip",
-]
+from ..usgs_products import UsgsProducts
 
 
 class DatasetDownloader:
-    @staticmethod
-    def download():
+    """
+    Downloads the current USGS GNIS products from S3 into a directory.
+    """
+
+    _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
+
+    def __init__(self, download_dir: Path, s3=None):
         """
-        Downloads the GNIS datasets (GPKG and text files).
+        Creates a downloader.
+
+        :param download_dir: Directory the files are saved to; created if missing.
+        :param s3: S3 client to download with. Defaults to an anonymous boto3
+            client, since the USGS bucket is public.
         """
-        download_dir = config.input_directory
-        download_dir.mkdir(parents=True, exist_ok=True)
-        s3 = boto3.client("s3", config=BotoConfig(signature_version=UNSIGNED))
+        self.download_dir = download_dir
+        self.s3 = s3 or boto3.client(
+            "s3", config=BotoConfig(signature_version=UNSIGNED)
+        )
 
-        # Download GPKG dataset
-        DatasetDownloader._download_file(s3, GPKG_KEY, download_dir)
+    def download(self) -> list[Path]:
+        """
+        Downloads the GeoPackage and the text products, replacing any copies
+        already in the download directory.
 
-        # Download text datasets
-        for key in TEXT_DATASETS:
-            DatasetDownloader._download_file(s3, key, download_dir)
+        :return: Paths of the downloaded files.
+        """
+        self.download_dir.mkdir(parents=True, exist_ok=True)
+        paths = [self._download_file(key) for key in UsgsProducts.download_keys()]
+        self._log.info(f"Downloaded {len(paths)} files to {self.download_dir}")
+        return paths
 
-        print("Done!")
+    def _download_file(self, key: str) -> Path:
+        """
+        Downloads one object from the USGS bucket.
 
-    @staticmethod
-    def _download_file(s3, key: str, download_dir):
-        """Download a single file from S3."""
-        filename = key.split("/")[-1]
-        local_path = download_dir / filename
-        print(f"Downloading {key}...")
-        s3.download_file(BUCKET, key, str(local_path))
-        print(f"  Saved to {local_path}")
+        :param key: Object key in the bucket.
+        :return: Path of the saved file, named after the key's last path segment.
+        """
+        local_path = self.download_dir / key.split("/")[-1]
+        self._log.info(f"Downloading {key}")
+        self.s3.download_file(UsgsProducts.BUCKET, key, str(local_path))
+        return local_path
 
 
 if __name__ == "__main__":
-    DatasetDownloader.download()
+    DatasetDownloader(config.input_directory).download()

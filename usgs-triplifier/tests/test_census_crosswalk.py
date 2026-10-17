@@ -6,10 +6,8 @@ import requests
 
 from usgs_triplifier.config import config
 from usgs_triplifier.lib import census_crosswalk
-from usgs_triplifier.lib.census_crosswalk import (
-    CENSUS_CROSSWALK_BASENAME,
-    build_census_crosswalk,
-)
+from usgs_triplifier.lib.census_crosswalk import build_census_crosswalk
+from usgs_triplifier.output_files import OutputFiles
 
 # 2025+ vintages are pipe-delimited with a GEOIDFQ column
 COUNTIES = (
@@ -55,7 +53,7 @@ def test_ansi_codes_join_to_geoids(data_dirs, monkeypatch):
 
     path = build_census_crosswalk()
 
-    assert path == output_dir / CENSUS_CROSSWALK_BASENAME
+    assert path == output_dir / OutputFiles.CENSUS_CROSSWALK
     with gzip.open(path, "rt", encoding="utf-8") as f:
         lines = f.read().splitlines()
     prop = f"<{config.lod_base}/gnis/ontology/censusGeoid>"

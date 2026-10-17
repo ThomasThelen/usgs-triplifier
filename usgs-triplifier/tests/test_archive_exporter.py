@@ -7,7 +7,7 @@ from rdflib import Graph
 
 from usgs_triplifier.config import config
 from usgs_triplifier.lib.archive_exporter import _format_size, export_release
-from usgs_triplifier.lib.dataset_metadata import RETAINED_BASENAME
+from usgs_triplifier.output_files import OutputFiles
 
 BUILD_TIME = datetime(2026, 8, 10, 12, 30, tzinfo=timezone.utc)
 
@@ -38,7 +38,7 @@ def test_export_concatenates_outputs_as_ntriples(data_dirs, archive_dir):
     _write_nt_gz(output_dir / "features.nt.gz", FEATURES_NT)
     _write_nt_gz(output_dir / "names.nt.gz", NAMES_NT)
     # Retained records are published separately, never in the main dump
-    _write_nt_gz(output_dir / RETAINED_BASENAME, NAMES_NT)
+    _write_nt_gz(output_dir / OutputFiles.RETAINED, NAMES_NT)
 
     dump = export_release(BUILD_TIME)
 

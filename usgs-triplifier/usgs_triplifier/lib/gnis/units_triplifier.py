@@ -9,6 +9,8 @@ from .triplifier import (
     normalize_feature_id,
 )
 from ...config import config
+from ...output_files import OutputFiles
+from ...usgs_products import UsgsProducts
 
 
 class UnitsTriplifier:
@@ -60,10 +62,11 @@ class UnitsTriplifier:
             subject=self.get_subject,
             fields=field_mappings,
         )
-        pattern = (
-            "GOVT_UNITS*.zip" if config.legacy_dump else "GovernmentUnits*_Text.zip"
+        triplify_text_files(
+            triples_mapping,
+            UsgsProducts.UNITS.pattern_for(config.legacy_dump),
+            OutputFiles.UNITS,
         )
-        triplify_text_files(triples_mapping, pattern, "units")
 
     def get_subject(self, row: dict, graph: Graph) -> str | None:
         """

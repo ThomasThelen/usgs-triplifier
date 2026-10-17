@@ -7,6 +7,8 @@ from .triplifier import (
     normalize_feature_id,
 )
 from ...config import config
+from ...output_files import OutputFiles
+from ...usgs_products import UsgsProducts
 
 
 class HistoryTriplifier:
@@ -33,12 +35,11 @@ class HistoryTriplifier:
             fields=field_mappings,
         )
 
-        pattern = (
-            "Feature_Description_History*.zip"
-            if config.legacy_dump
-            else "FeatureDescriptionHistory*_Text.zip"
+        triplify_text_files(
+            triples_mapping,
+            UsgsProducts.HISTORY.pattern_for(config.legacy_dump),
+            OutputFiles.HISTORY,
         )
-        triplify_text_files(triples_mapping, pattern, "history")
 
     @staticmethod
     def get_subject(row: dict, graph: Graph) -> str | None:
