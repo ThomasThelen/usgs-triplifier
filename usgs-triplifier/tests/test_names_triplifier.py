@@ -4,7 +4,6 @@ from rdflib.namespace import RDFS, XSD
 from conftest import make_text_zip, parse_nt_gz
 from usgs_triplifier.config import config
 from usgs_triplifier.lib.gnis.names_triplifier import NamesTriplifier
-from usgs_triplifier.lib.gnis.text_triplifier import triplify_text_files
 
 
 HEADER = "feature_id|feature_name|feature_name_official|citation|date_created"
@@ -24,7 +23,7 @@ def test_names_end_to_end(data_dirs):
         ],
     )
 
-    NamesTriplifier()
+    NamesTriplifier().run()
 
     graph = parse_nt_gz(output_dir / "names.nt.gz")
     gnisf = config.prefix_list["gnisf"]
@@ -54,47 +53,6 @@ def test_names_end_to_end(data_dirs):
     assert list(graph.objects(gnisf["2"], gnis["dateNameCreated"])) == [
         Literal("bogus-date")
     ]
-
-
-def test_triplify_text_files_file_filter(data_dirs):
-    input_dir, output_dir = data_dirs
-    make_text_zip(
-        input_dir,
-        "Sample_Text.zip",
-        "Text/Sample.txt",
-        [HEADER, "5|Some Hill|Official|Citation Unknown|01/01/2001"],
-    )
-
-    filtered = triplify_text_files(
-        _names_config(), "*_Text.zip", "filtered.nt.gz", file_filter="DoesNotMatch"
-    )
-    assert len(filtered) == 0
-
-    matched = triplify_text_files(
-        _names_config(), "*_Text.zip", "matched.nt.gz", file_filter="Sample"
-    )
-    assert len(matched) > 0
-    assert (output_dir / "matched.nt.gz").exists()
-
-
-def _names_config():
-    from usgs_triplifier.lib.gnis.triplifier import (
-        FieldDescriptor,
-        TriplifierConfig,
-        normalize_feature_id,
-    )
-
-    return TriplifierConfig(
-        subject=lambda row, graph: (
-            f"gnisf:{normalize_feature_id(row.get('feature_id', ''))}"
-        ),
-        fields={
-            "feature_name": FieldDescriptor(
-                predicate="rdfs:label",
-                object=lambda v, r, g: Literal(v, lang="en"),
-            ),
-        },
-    )
 
 
 def test_is_official_accepts_current_and_legacy_flags():

@@ -1,136 +1,109 @@
-import gzip
 import logging
 import tempfile
 import zipfile
 from pathlib import Path
+from typing import ClassVar
 
 import pyogrio
 import pyogrio.raw
 import shapely
-from rdflib import Literal
 from tqdm import tqdm
 
-from .triplifier import NTStreamSink, normalize_feature_id
 from ...config import config
 from ...output_files import OutputFiles
 from ...usgs_products import UsgsProducts
-
-logger = logging.getLogger(__name__)
-
-FEATURES_LAYER = "DomesticNames"
-
-# Rows per GDAL read
-BATCH_SIZE = 100_000
-
-# Same CRS prefix the point geometries carry, so every WKT literal in the
-# dataset is self-describing
-CRS84 = "<http://www.opengis.net/def/crs/OGC/1.3/CRS84>"
+from .identifiers import FeatureIds
+from .rdf import NTriplesWriter, Terms
 
 
-def get_gpkg_zip_files() -> list[Path]:
+class GeometryTriplifier:
     """
-    Lists the GeoPackage zips in the input directory.
-
-    :return: Paths of the zips matching the GeoPackage pattern, sorted.
+    Converts the multipoint geometries in the GeoPackage into geometries.nt.gz.
     """
-    return sorted(config.input_directory.glob(UsgsProducts.GEOPACKAGE.pattern))
 
+    # Layer holding one row per feature
+    LAYER: ClassVar[str] = "DomesticNames"
 
-def triplify_geometries(output_name: str = OutputFiles.GEOMETRIES) -> NTStreamSink:
-    """
-    Stream a multipoint geometry for every feature in the staged GeoPackages.
+    # Rows read from the layer per call
+    BATCH_SIZE: ClassVar[int] = 100_000
 
-    Each feature gets ``geosparql:hasGeometry`` to a ``usgeo-multipoint``
-    node whose ``geosparql:asWKT`` is the 2D multipoint. The source declares
-    Z coordinates, but they are always 0 (GNIS keeps elevation as an
-    attribute), so they are dropped on read.
+    _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
-    :param output_name: Name of the gzipped N-Triples file written to the
-        output directory.
-    :return: The sink the triples were streamed through.
-    :raises FileNotFoundError: If no GPKG zip is staged.
-    """
-    zip_files = get_gpkg_zip_files()
+    def run(self) -> int:
+        """
+        Writes a geometry for every feature in the GeoPackage zips in the
+        input directory.
 
-    if not zip_files:
-        raise FileNotFoundError(f"No GPKG zip files found in {config.input_directory}")
+        :return: Number of triples written.
+        :raises FileNotFoundError: If the input directory has no GeoPackage zip.
+        """
+        pattern = UsgsProducts.GEOPACKAGE.pattern
+        zip_paths = sorted(config.input_directory.glob(pattern))
+        if not zip_paths:
+            raise FileNotFoundError(
+                f"No zip files matching {pattern} in {config.input_directory}"
+            )
 
-    output_dir = config.output_directory
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / output_name
+        path = config.output_directory / OutputFiles.GEOMETRIES
+        with NTriplesWriter(path) as writer:
+            for zip_path in zip_paths:
+                self._log.info(f"Reading geometries from {zip_path.name}")
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    names = [n for n in zf.namelist() if n.endswith(".gpkg")]
+                    # GDAL reads a GeoPackage from a file, so it is extracted
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        for name in names:
+                            zf.extract(name, tmpdir)
+                            self._read_layer(Path(tmpdir) / name, writer)
+        self._log.info(f"Wrote {len(writer)} triples to {path}")
+        return len(writer)
 
-    with gzip.open(output_path, "wt", encoding="utf-8") as out:
-        sink = NTStreamSink(out)
-        for zip_path in zip_files:
-            logger.info(f"Processing {zip_path.name}")
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                gpkg_files = [f for f in zf.namelist() if f.endswith(".gpkg")]
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    for gpkg_file in gpkg_files:
-                        zf.extract(gpkg_file, tmpdir)
-                        _triplify_layer(Path(tmpdir) / gpkg_file, sink)
+    def _read_layer(self, gpkg_path: Path, writer: NTriplesWriter) -> None:
+        """
+        Reads the features layer in batches and writes one multipoint per
+        feature, at full coordinate precision. Features without a geometry
+        are skipped.
 
-    logger.info(f"Output written to {output_path}")
-    return sink
-
-
-def _triplify_layer(gpkg_path: Path, sink: NTStreamSink) -> None:
-    """
-    Reads the features layer in batches and emits one multipoint per row.
-
-    Rows without a geometry are skipped; the rest are written at full
-    coordinate precision.
-
-    :param gpkg_path: Path to the extracted GeoPackage.
-    :param sink: Streaming triple sink the geometry triples are written to.
-    """
-    total = pyogrio.read_info(gpkg_path, layer=FEATURES_LAYER)["features"]
-    pbar = tqdm(
-        total=total,
-        unit="rows",
-        desc=f"Geometries {gpkg_path.name}",
-        bar_format="{l_bar}{bar:40}{r_bar}",
-    )
-
-    for offset in range(0, total, BATCH_SIZE):
-        _, _, wkb, (feature_ids,) = pyogrio.raw.read(
-            gpkg_path,
-            layer=FEATURES_LAYER,
-            columns=["feature_id"],
-            force_2d=True,
-            skip_features=offset,
-            max_features=BATCH_SIZE,
+        :param gpkg_path: Path of the extracted GeoPackage.
+        :param writer: Writer the geometry triples are added to.
+        """
+        total = pyogrio.read_info(gpkg_path, layer=self.LAYER)["features"]
+        progress = tqdm(
+            total=total,
+            unit="rows",
+            desc=gpkg_path.name,
+            bar_format="{l_bar}{bar:40}{r_bar}",
         )
-        geometries = shapely.from_wkb(wkb)
-        for feature_id, geometry in zip(feature_ids.tolist(), geometries):
-            if geometry is None or geometry.is_empty:
-                continue
-            # Full precision: the coordinates are published as given
-            wkt = shapely.to_wkt(geometry, rounding_precision=-1)
-            _add_geometry(sink, normalize_feature_id(feature_id), wkt)
-        pbar.update(len(feature_ids))
+        for offset in range(0, total, self.BATCH_SIZE):
+            _, _, wkb, (feature_ids,) = pyogrio.raw.read(
+                gpkg_path,
+                layer=self.LAYER,
+                columns=["feature_id"],
+                force_2d=True,
+                skip_features=offset,
+                max_features=self.BATCH_SIZE,
+            )
+            for feature_id, geometry in zip(
+                feature_ids.tolist(), shapely.from_wkb(wkb)
+            ):
+                if geometry is None or geometry.is_empty:
+                    continue
+                wkt = shapely.to_wkt(geometry, rounding_precision=-1)
+                self._add_geometry(writer, FeatureIds.normalize(feature_id), wkt)
+            progress.update(len(feature_ids))
+        progress.close()
 
-    pbar.close()
+    @staticmethod
+    def _add_geometry(writer: NTriplesWriter, feature_id: str, wkt: str) -> None:
+        """
+        Links a feature to its multipoint node and attaches the WKT literal.
 
-
-def _add_geometry(sink: NTStreamSink, feature_id: str, wkt: str) -> None:
-    """
-    Links a feature to its multipoint node and attaches the WKT literal.
-
-    :param sink: Streaming triple sink.
-    :param feature_id: Canonical feature id, as used in gnisf: IRIs.
-    :param wkt: 2D multipoint WKT, without a CRS prefix.
-    """
-    prefixes = config.prefix_list
-    geosparql = prefixes["geosparql"]
-    feature = prefixes["gnisf"][feature_id]
-    geometry = prefixes["usgeo-multipoint"][f"gnisf.{feature_id}"]
-
-    sink.add((feature, geosparql["hasGeometry"], geometry))
-    sink.add(
-        (
-            geometry,
-            geosparql["asWKT"],
-            Literal(f"{CRS84}{wkt}", datatype=geosparql["wktLiteral"]),
-        )
-    )
+        :param writer: Writer the triples are added to.
+        :param feature_id: Canonical feature id, as used in gnisf: IRIs.
+        :param wkt: 2D multipoint WKT, without a CRS prefix.
+        """
+        prefixes = config.prefix_list
+        geosparql = prefixes["geosparql"]
+        geometry = prefixes["usgeo-multipoint"][f"gnisf.{feature_id}"]
+        writer.add((prefixes["gnisf"][feature_id], geosparql["hasGeometry"], geometry))
+        writer.add((geometry, geosparql["asWKT"], Terms.wkt_literal(wkt)))

@@ -14,12 +14,12 @@ from usgs_triplifier.lib.dataset_metadata import write_dataset_metadata
 from usgs_triplifier.lib.retention import build_retained
 from usgs_triplifier.lib.validation import validate_release
 from usgs_triplifier.lib.gnis import (
-    UnitsTriplifier,
     FeaturesTriplifier,
-    NamesTriplifier,
+    GeometryTriplifier,
     HistoryTriplifier,
+    NamesTriplifier,
+    UnitsTriplifier,
 )
-from usgs_triplifier.lib.gnis.geometry_triplifier import triplify_geometries
 from config import config
 from graphdb_adapter import GraphDBAdapter
 
@@ -55,10 +55,10 @@ def main() -> None:
         HistoryTriplifier,
         UnitsTriplifier,
     ]:
-        triplifier()
+        triplifier().run()
 
     if not config.legacy_dump:
-        triplify_geometries()
+        GeometryTriplifier().run()
 
     # The crosswalks also run for legacy dumps because the links are keyed on
     # GNIS feature ids, which do not change between dumps.

@@ -40,7 +40,7 @@ class OutputFiles:
     @staticmethod
     def release(release_id: str) -> str:
         """
-        Names the release file for a release.
+        Builds the file name of a release's release file.
 
         :param release_id: Release id (YYMMDD).
         :return: The file name, e.g. gnis-ld-260701.nt.gz.
@@ -50,7 +50,7 @@ class OutputFiles:
     @staticmethod
     def historical_release(release_id: str) -> str:
         """
-        Names the historical release file for a release.
+        Builds the file name of a release's historical release file.
 
         :param release_id: Release id (YYMMDD).
         :return: The file name, e.g. gnis-ld-historical-260701.nt.gz.
@@ -60,7 +60,8 @@ class OutputFiles:
     @staticmethod
     def sidecar_for(release_path: Path) -> Path:
         """
-        Locates the JSON file that describes a release file for the website.
+        Builds the path of the JSON file that describes a release file to the
+        website. Only the path is computed; the file may not exist.
 
         :param release_path: Path of a release or historical release file.
         :return: The path with .nt.gz replaced by .meta.json.

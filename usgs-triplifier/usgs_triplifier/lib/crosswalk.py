@@ -8,7 +8,7 @@ import requests
 
 from ..config import config
 from ..output_files import OutputFiles
-from .gnis.triplifier import normalize_feature_id
+from .gnis.identifiers import FeatureIds
 
 QUERY = """SELECT ?item ?gnisId ?article ?geonamesId ?wofId ?locId ?tgnId WHERE {
   ?item wdt:P590 ?gnisId .
@@ -66,7 +66,7 @@ def build_crosswalk() -> Path | None:
             gnis_id = binding["gnisId"]["value"].strip()
             if not gnis_id.isdigit():
                 continue
-            feature_id = normalize_feature_id(gnis_id)
+            feature_id = FeatureIds.normalize(gnis_id)
             feature = f"<{config.lod_base}/gnis/feature/{feature_id}>"
 
             lines = [f"{feature} {OWL_SAMEAS} <{binding['item']['value']}> ."]

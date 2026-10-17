@@ -5,7 +5,6 @@ from rdflib.namespace import OWL, XSD
 
 from conftest import make_text_zip, parse_nt_gz
 from usgs_triplifier.config import config
-from usgs_triplifier.lib.gnis import features_triplifier
 from usgs_triplifier.lib.gnis.features_triplifier import FeaturesTriplifier
 
 # The columns the triplifier reads, plus elev_in_ft to show it is ignored
@@ -41,10 +40,9 @@ def _features_zip(input_dir: Path) -> Path:
 
 def test_features_end_to_end(data_dirs, monkeypatch):
     input_dir, output_dir = data_dirs
-    monkeypatch.setattr(features_triplifier, "feature_aliases", {})
     _features_zip(input_dir)
 
-    FeaturesTriplifier()
+    FeaturesTriplifier().run()
 
     graph = parse_nt_gz(output_dir / "features.nt.gz")
 
@@ -105,21 +103,18 @@ def test_features_end_to_end(data_dirs, monkeypatch):
 
 
 def test_state_and_county_object_edge_cases():
-    ft = FeaturesTriplifier.__new__(FeaturesTriplifier)
-    assert ft.state_object("", {}, Graph()) == ""
+    ft = FeaturesTriplifier()
     gnisf_alias = config.prefix_list["gnisf-alias"]
-    assert ft.state_object("New York", {}, Graph()) == gnisf_alias["New_York"]
+    assert ft.state_object("New York", {}) == gnisf_alias["New_York"]
+    assert ft.county_object("", {}) == config.prefix_list["gnis"]["UnknownCounty"]
     assert (
-        ft.county_object("", {}, Graph()) == config.prefix_list["gnis"]["UnknownCounty"]
-    )
-    assert (
-        ft.county_object("Kings", {"state_name": "New York"}, Graph())
+        ft.county_object("Kings", {"state_name": "New York"})
         == gnisf_alias["New_York.Kings"]
     )
 
 
 def test_prim_lat_dec_field_guards():
-    ft = FeaturesTriplifier.__new__(FeaturesTriplifier)
+    ft = FeaturesTriplifier()
     assert ft.prim_lat_dec_field("", {"feature_id": "1"}, Graph()) is None
     assert ft.prim_lat_dec_field("0.0", {"feature_id": "1"}, Graph()) is None
     assert ft.prim_lat_dec_field("0", {"feature_id": "1"}, Graph()) is None
@@ -131,11 +126,13 @@ def test_prim_lat_dec_field_guards():
     result = ft.prim_lat_dec_field(
         "34.5", {"prim_long_dec": "-117.2", "feature_id": "1"}, Graph()
     )
-    assert result == {"geosparql:hasGeometry": [f">{config.geo_base}/point/gnisf.1"]}
+    assert result == {
+        "geosparql:hasGeometry": [URIRef(f"{config.geo_base}/point/gnisf.1")]
+    }
 
 
 def test_elev_in_ft_field_guards():
-    ft = FeaturesTriplifier.__new__(FeaturesTriplifier)
+    ft = FeaturesTriplifier()
     assert ft.elev_in_ft_field("", {}, Graph()) is None
     assert ft.elev_in_ft_field("0", {}, Graph()) is None
     assert ft.elev_in_ft_field("  ", {}, Graph()) is None
@@ -150,10 +147,9 @@ def test_elev_in_ft_field_guards():
 
 def test_current_sources_omit_elevation(data_dirs, monkeypatch):
     input_dir, output_dir = data_dirs
-    monkeypatch.setattr(features_triplifier, "feature_aliases", {})
     _features_zip(input_dir)
 
-    FeaturesTriplifier()
+    FeaturesTriplifier().run()
 
     graph = parse_nt_gz(output_dir / "features.nt.gz")
     gnis = config.prefix_list["gnis"]

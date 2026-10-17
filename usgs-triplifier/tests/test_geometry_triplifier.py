@@ -4,7 +4,8 @@ from rdflib import Literal
 
 from conftest import make_gpkg_zip, parse_nt_gz
 from usgs_triplifier.config import config
-from usgs_triplifier.lib.gnis.geometry_triplifier import CRS84, triplify_geometries
+from usgs_triplifier.lib.gnis.geometry_triplifier import GeometryTriplifier
+from usgs_triplifier.lib.gnis.rdf import Terms
 
 
 def test_geometries_end_to_end(data_dirs):
@@ -19,7 +20,7 @@ def test_geometries_end_to_end(data_dirs):
         },
     )
 
-    sink = triplify_geometries()
+    count = GeometryTriplifier().run()
 
     graph = parse_nt_gz(output_dir / "geometries.nt.gz")
     gnisf = config.prefix_list["gnisf"]
@@ -33,15 +34,15 @@ def test_geometries_end_to_end(data_dirs):
     ]
     # 2D WKT with the CRS prefix the point geometries carry
     assert graph.value(multipoint["gnisf.1"], geosparql["asWKT"]) == Literal(
-        f"{CRS84}MULTIPOINT ((-117.2 34.5), (-117.1 34.6))", datatype=wkt_literal
+        f"{Terms.CRS84}MULTIPOINT ((-117.2 34.5), (-117.1 34.6))", datatype=wkt_literal
     )
     assert graph.value(multipoint["gnisf.2"], geosparql["asWKT"]) == Literal(
-        f"{CRS84}MULTIPOINT ((-115.1 36.1))", datatype=wkt_literal
+        f"{Terms.CRS84}MULTIPOINT ((-115.1 36.1))", datatype=wkt_literal
     )
     assert list(graph.predicate_objects(gnisf["3"])) == []
-    assert len(sink) == len(graph) == 4
+    assert count == len(graph) == 4
 
 
 def test_geometries_without_gpkg_raise(data_dirs):
     with pytest.raises(FileNotFoundError):
-        triplify_geometries()
+        GeometryTriplifier().run()

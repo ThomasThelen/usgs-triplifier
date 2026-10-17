@@ -1,225 +1,151 @@
-from rdflib import Graph, Literal, URIRef
+from collections.abc import Callable
+from typing import ClassVar
+
+from rdflib import Literal, URIRef
 from rdflib.namespace import OWL
 
-from .text_triplifier import triplify_text_files
-from .triplifier import (
-    TriplifierConfig,
-    FieldDescriptor,
-    clean,
-    normalize_feature_id,
-)
 from ...config import config
 from ...output_files import OutputFiles
-from ...usgs_products import UsgsProducts
+from ...usgs_products import UsgsProduct, UsgsProducts
+from .identifiers import FeatureIds
+from .rdf import NTriplesWriter
+from .triplifier import FieldDescriptor, Triplifier
 
 
-class UnitsTriplifier:
+class UnitsTriplifier(Triplifier):
     """
-    Abstraction over creating RDF triples about government units
+    Converts the GNIS government units (GovernmentUnits) into units.nt.gz.
+
+    Only COUNTY and STATE rows are written. Each gets owl:sameAs from its
+    gnisf-alias: IRI (the state, or state.county), which is how features'
+    gnis:state and gnis:county links reach the unit.
     """
 
-    def __init__(self):
-        field_mappings = {
-            "feature_id": FieldDescriptor(
-                predicate="gnis:featureId",
-                object=self.feature_id_object,
-            ),
-            "unit_type": FieldDescriptor(
-                predicate="rdf:type",
-                object=self.unit_type_object,
-            ),
+    product: ClassVar[UsgsProduct] = UsgsProducts.UNITS
+    output_name: ClassVar[str] = OutputFiles.UNITS
+
+    def fields(self) -> dict[str, FieldDescriptor | Callable]:
+        """
+        Lists the unit columns that become triples.
+
+        :return: Mapping of column name to its field mapping.
+        """
+        return {
+            "feature_id": FieldDescriptor("gnis:featureId", self.plain_literal),
+            "unit_type": FieldDescriptor("rdf:type", self.unit_type_object),
             "county_numeric": FieldDescriptor(
-                predicate="gnis:countyCode",
-                object=self.county_numeric_object,
-                optional=True,
+                "gnis:countyCode", self.county_numeric_object, optional=True
             ),
             "county_name": FieldDescriptor(
-                predicate="gnis:countyName",
-                object=self.county_name_object,
-                optional=True,
+                "gnis:countyName", self.english_literal, optional=True
             ),
             "state_numeric": FieldDescriptor(
-                predicate="gnis:stateId",
-                object=self.state_numeric_object,
-                optional=True,
+                "gnis:stateId", self.state_only_object, optional=True
             ),
             "state_alpha": FieldDescriptor(
-                predicate="gnis:stateCode",
-                object=self.state_alpha_object,
-                optional=True,
+                "gnis:stateCode", self.state_only_object, optional=True
             ),
             "state_name": self.state_name_field,
-            "country_name": FieldDescriptor(
-                predicate="gnis:country",
-                object=self.country_name_object,
-            ),
-            "feature_name": FieldDescriptor(
-                predicate="rdfs:label",
-                object=self.feature_name_object,
-            ),
+            "country_name": FieldDescriptor("gnis:country", self.country_name_object),
+            "feature_name": FieldDescriptor("rdfs:label", self.english_literal),
         }
-        triples_mapping = TriplifierConfig(
-            subject=self.get_subject,
-            fields=field_mappings,
-        )
-        triplify_text_files(
-            triples_mapping,
-            UsgsProducts.UNITS.pattern_for(config.legacy_dump),
-            OutputFiles.UNITS,
-        )
 
-    def get_subject(self, row: dict, graph: Graph) -> str | None:
+    def subject(self, row: dict[str, str], writer: NTriplesWriter) -> str | None:
         """
-        Generate subject IRI for a GNIS unit and add alias sameAs relation.
+        Builds the unit's IRI and writes owl:sameAs from its alias to it.
 
-        :param row: Dictionary representing a row from the GPKG table.
-        :param graph: RDF graph to add sameAs relations to.
-        :return: Subject IRI string or None if invalid unit type.
+        :param row: Source row.
+        :param writer: Writer the owl:sameAs triple is added to.
+        :return: The unit's gnisf: IRI, or None for a unit that is neither a
+            COUNTY nor a STATE.
         """
-        feature_id = normalize_feature_id(row.get("feature_id", ""))
-        feature_iri = f"gnisf:{feature_id}"
-
-        # Build alias based on unit type
-        unit_type = str(row.get("unit_type", ""))
-        state_name = str(row.get("state_name", ""))
-        county_name = str(row.get("county_name", ""))
-
+        unit_type = row.get("unit_type", "")
+        state = FeatureIds.alias_part(row.get("state_name", ""))
         if unit_type == "COUNTY":
-            alias = f"{clean(state_name)}.{clean(county_name)}"
+            alias = f"{state}.{FeatureIds.alias_part(row.get('county_name', ''))}"
         elif unit_type == "STATE":
-            alias = clean(state_name)
+            alias = state
         else:
-            # Skip COUNTRY and other unit types (not in original output)
             return None
 
-        # Add owl:sameAs from alias to feature
-        alias_uri = config.prefix_list["gnisf-alias"][alias]
-        feature_uri = config.prefix_list["gnisf"][feature_id]
-        graph.add((alias_uri, OWL.sameAs, feature_uri))
+        feature_id = FeatureIds.normalize(row.get("feature_id", ""))
+        writer.add(
+            (
+                config.prefix_list["gnisf-alias"][alias],
+                OWL.sameAs,
+                config.prefix_list["gnisf"][feature_id],
+            )
+        )
+        return f"gnisf:{feature_id}"
 
-        return feature_iri
-
-    def feature_id_object(self, value: str, row: dict, graph: Graph) -> Literal:
+    def unit_type_object(self, value: str, row: dict) -> URIRef:
         """
-        Convert feature ID to literal.
+        Builds the rdf:type of the unit, e.g. COUNTY to gnis:County.
 
-        :param value: Feature ID value.
-        :param row: Dictionary representing a row from the GPKG table.
-        :param graph: RDF graph (unused but required by interface).
-        :return: RDF Literal containing the feature ID.
+        :param value: Unit type in capitals.
+        :param row: Source row (unused).
+        :return: The gnis: class IRI.
         """
-        return Literal(value)
+        return config.prefix_list["gnis"][value.capitalize()]
 
-    def unit_type_object(self, value: str, row: dict, graph: Graph) -> URIRef:
+    def county_numeric_object(self, value: str, row: dict) -> Literal:
         """
-        Convert unit type to RDF type (e.g., COUNTY -> gnis:County).
+        Builds the gnis:countyCode literal. County FIPS codes have three
+        digits, and the source drops leading zeros, so they are restored.
 
-        :param value: Unit type value (e.g., 'COUNTY', 'STATE').
-        :param row: Dictionary representing a row from the GPKG table.
-        :param graph: RDF graph (unused but required by interface).
-        :return: URIRef for the corresponding GNIS ontology class.
+        :param value: County code.
+        :param row: Source row (unused).
+        :return: The three-digit code as a plain literal.
         """
-        # Title case: COUNTY -> County, STATE -> State
-        class_name = value[0] + value[1:].lower()
-        return config.prefix_list["gnis"][class_name]
-
-    def county_numeric_object(self, value: str, row: dict, graph: Graph) -> Literal:
-        """
-        Convert county numeric code to literal (zero-padded to 3 digits).
-
-        :param value: County numeric code value.
-        :param row: Dictionary representing a row from the GPKG table.
-        :param graph: RDF graph (unused but required by interface).
-        :return: RDF Literal containing the county code.
-        """
-        # Zero-pad to 3 digits to match original output format
         return Literal(value.zfill(3))
 
-    def county_name_object(self, value: str, row: dict, graph: Graph) -> Literal:
+    def state_only_object(self, value: str, row: dict) -> Literal | str:
         """
-        Convert county name to language-tagged literal.
+        Builds the gnis:stateId or gnis:stateCode literal, which only STATE
+        units get.
 
-        :param value: County name value.
-        :param row: Dictionary representing a row from the GPKG table.
-        :param graph: RDF graph (unused but required by interface).
-        :return: RDF Literal with English language tag.
+        :param value: State FIPS code or two-letter code.
+        :param row: Source row; unit_type selects whether a triple is written.
+        :return: The value as a plain literal for a STATE, otherwise an empty
+            string.
         """
-        return Literal(value, lang="en")
+        return Literal(value) if row.get("unit_type") == "STATE" else ""
 
-    def state_numeric_object(
-        self, value: str, row: dict, graph: Graph
-    ) -> Literal | str:
+    def state_name_field(
+        self, value: str, row: dict, writer: NTriplesWriter
+    ) -> dict | None:
         """
-        Convert state numeric code to literal (only for STATE units).
+        Builds the state triple: a COUNTY gets gnis:state linking to its
+        state's alias; a STATE gets its name as gnis:stateName.
 
-        :param value: State numeric code value.
-        :param row: Dictionary representing a row from the GPKG table.
-        :param graph: RDF graph (unused but required by interface).
-        :return: RDF Literal containing the state code or empty string for non-STATE units.
-        """
-        if str(row.get("unit_type", "")) == "STATE":
-            return Literal(value)
-        return ""
-
-    def state_alpha_object(self, value: str, row: dict, graph: Graph) -> Literal | str:
-        """
-        Convert state alpha code to literal.
-
-        :param value: State alpha code value (e.g., 'CA', 'NY').
-        :param row: Dictionary representing a row from the GPKG table.
-        :param graph: RDF graph (unused but required by interface).
-        :return: RDF Literal containing the state code or empty string for non-STATE units.
-        """
-        if str(row.get("unit_type", "")) == "STATE":
-            return Literal(value)
-        return ""
-
-    def state_name_field(self, value: str, row: dict, graph: Graph) -> dict | None:
-        """
-        Process state name field differently based on unit type.
-
-        :param value: State name value.
-        :param row: Dictionary representing a row from the GPKG table.
-        :param graph: RDF graph (unused but required by interface).
-        :return: Dictionary of predicate-object pairs or None if no value.
+        :param value: Full state name.
+        :param row: Source row; unit_type selects the triple.
+        :param writer: Writer the row's triples go to (unused).
+        :return: The predicate-object pair, or None when the state name is empty.
         """
         if not value:
             return None
+        if row.get("unit_type") == "COUNTY":
+            return {"gnis:state": [f"gnisf-alias:{FeatureIds.alias_part(value)}"]}
+        return {"gnis:stateName": [Literal(value, lang="en")]}
 
-        if str(row.get("unit_type", "")) == "COUNTY":
-            # For counties, link to state alias
-            return {
-                "gnis:state": [f"gnisf-alias:{clean(value)}"],
-            }
-        else:
-            # For states, add state name as literal
-            return {
-                "gnis:stateName": [Literal(value, lang="en")],
-            }
-
-    def country_name_object(self, value: str, row: dict, graph: Graph) -> URIRef:
+    def country_name_object(self, value: str, row: dict) -> URIRef:
         """
-        Convert country name to feature alias URI.
+        Builds the gnis:country link to the country's alias.
 
-        :param value: Country name value.
-        :param row: Dictionary representing a row from the GPKG table.
-        :param graph: RDF graph (unused but required by interface).
-        :return: URIRef for the country alias.
+        :param value: Country name.
+        :param row: Source row (unused).
+        :return: The country's gnisf-alias: IRI.
         """
-        return config.prefix_list["gnisf-alias"][clean(value)]
+        return config.prefix_list["gnisf-alias"][FeatureIds.alias_part(value)]
 
-    def feature_name_object(self, value: str, row: dict, graph: Graph) -> Literal:
-        """
-        Convert feature name to language-tagged literal.
 
-        :param value: Feature name value.
-        :param row: Dictionary representing a row from the GPKG table.
-        :param graph: RDF graph (unused but required by interface).
-        :return: RDF Literal with English language tag.
-        """
-        return Literal(value, lang="en")
+def main():
+    """
+    Writes units.nt.gz from the input directory.
+    """
+    UnitsTriplifier().run()
 
 
 if __name__ == "__main__":
-    config.output_directory.mkdir(parents=True, exist_ok=True)
-    UnitsTriplifier()
+    main()

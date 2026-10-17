@@ -1,140 +1,105 @@
-"""
-GNIS Names Triplifier Configuration.
-
-Processes GNIS text files (AllNames_*.txt from zip archives) and generates
-RDF triples for feature names (official and alternative names), citations,
-and date created.
-"""
-
+from collections.abc import Callable
 from datetime import datetime
+from typing import ClassVar
 
-from rdflib import Graph, Literal
+from rdflib import Literal
 from rdflib.namespace import XSD
 
-from .text_triplifier import triplify_text_files
-from .triplifier import TriplifierConfig, FieldDescriptor, normalize_feature_id
-from ...config import config
 from ...output_files import OutputFiles
-from ...usgs_products import UsgsProducts
+from ...usgs_products import UsgsProduct, UsgsProducts
+from .identifiers import FeatureIds
+from .rdf import NTriplesWriter
+from .triplifier import FieldDescriptor, Triplifier
 
 
-class NamesTriplifier:
+class NamesTriplifier(Triplifier):
     """
-    Triplifier for GNIS names from text files.
+    Converts the GNIS names (AllNames) into names.nt.gz.
 
-    Uses the AllNames_*.txt files from the topical text zip archives which contain:
-        - feature_id, feature_name
-        - feature_name_official ("Official" or "Variant")
-        - citation, date_created
+    Each row is one name of a feature. The official name becomes the
+    feature's rdfs:label and gnis:officialName, with its gnis:citation and
+    gnis:dateNameCreated; every other name becomes a gnis:alternativeName.
     """
 
-    def __init__(self):
-        # Column mappings for text file processing
-        field_mappings = {
-            "feature_name": NamesTriplifier.feature_name_field,
+    product: ClassVar[UsgsProduct] = UsgsProducts.NAMES
+    output_name: ClassVar[str] = OutputFiles.NAMES
+
+    def fields(self) -> dict[str, FieldDescriptor | Callable]:
+        """
+        Lists the name columns that become triples.
+
+        :return: Mapping of column name to its field mapping.
+        """
+        return {
+            "feature_name": self.feature_name_field,
             "citation": FieldDescriptor(
-                predicate="gnis:citation",
-                object=NamesTriplifier.citation_object,
-                optional=True,
+                "gnis:citation", self.citation_object, optional=True
             ),
             "date_created": FieldDescriptor(
-                predicate="gnis:dateNameCreated",
-                object=NamesTriplifier.date_created_object,
-                optional=True,
+                "gnis:dateNameCreated", self.date_created_object, optional=True
             ),
         }
-        triples_config = TriplifierConfig(
-            subject=self.get_subject,
-            fields=field_mappings,
-        )
-        triplify_text_files(
-            triples_config,
-            UsgsProducts.NAMES.pattern_for(config.legacy_dump),
-            OutputFiles.NAMES,
-        )
 
-    @staticmethod
-    def get_subject(row: dict, graph: Graph) -> str | None:
+    def subject(self, row: dict[str, str], writer: NTriplesWriter) -> str:
         """
-        Generate subject IRI for a GNIS feature.
+        Builds the IRI of the feature the name belongs to.
 
-        :param row: Dictionary representing a row from the text file.
-        :param graph: RDF graph (unused but required by interface).
-        :return: Subject IRI string or None if invalid.
+        :param row: Source row.
+        :param writer: Writer the row's triples go to (unused).
+        :return: The feature's gnisf: IRI.
         """
-        return f"gnisf:{normalize_feature_id(row.get('feature_id', ''))}"
+        return f"gnisf:{FeatureIds.normalize(row.get('feature_id', ''))}"
 
-    @staticmethod
-    def feature_name_field(value: str, row: dict, graph: Graph) -> dict | None:
+    def feature_name_field(
+        self, value: str, row: dict, writer: NTriplesWriter
+    ) -> dict | None:
         """
-        Process feature name based on whether it's official or alternative.
+        Builds the name triples: rdfs:label and gnis:officialName for the
+        official name, gnis:alternativeName for any other.
 
-        :param value: Feature name value.
-        :param row: Dictionary representing a row from the text file.
-        :param graph: RDF graph (unused but required by interface).
-        :return: Dictionary of predicate-object pairs or None if no value.
+        :param value: The name.
+        :param row: Source row.
+        :param writer: Writer the row's triples go to (unused).
+        :return: The predicate-object pairs, or None when the name is empty.
         """
         if not value:
             return None
+        name = Literal(value, lang="en")
+        if self._is_official(row):
+            return {"rdfs:label": [name], "gnis:officialName": [name]}
+        return {"gnis:alternativeName": [name]}
 
-        # Text files use "Official" or "Variant" strings
-        is_official = NamesTriplifier._is_official(row)
-
-        if is_official:
-            # Official name: add as label and official name
-            return {
-                "rdfs:label": [Literal(value, lang="en")],
-                "gnis:officialName": [Literal(value, lang="en")],
-            }
-        else:
-            # Alternative name
-            return {
-                "gnis:alternativeName": [Literal(value, lang="en")],
-            }
-
-    @staticmethod
-    def citation_object(value: str, row: dict, graph: Graph) -> Literal | str:
+    def citation_object(self, value: str, row: dict) -> Literal | str:
         """
-        Convert citation to literal (only for official names).
+        Builds the gnis:citation of an official name.
 
-        :param value: Citation text value.
-        :param row: Dictionary representing a row from the text file.
-        :param graph: RDF graph (unused but required by interface).
-        :return: RDF Literal or URIRef for unknown citation, or empty string.
+        :param value: Citation text.
+        :param row: Source row; citations of other names are not written.
+        :return: The citation as an English literal. "gnis:UnknownCitation"
+            when USGS gives "Citation Unknown". Returns an empty string
+            for a name that is not official or a blank citation.
         """
-        # Only process citation for official names
-        if not NamesTriplifier._is_official(row):
+        if not self._is_official(row) or not value.strip():
             return ""
-
-        if not value or value.strip() == "":
-            return ""
-
         if value == "Citation Unknown":
             return "gnis:UnknownCitation"
-
         return Literal(value, lang="en")
 
-    @staticmethod
-    def date_created_object(value: str, row: dict, graph: Graph) -> Literal | str:
+    def date_created_object(self, value: str, row: dict) -> Literal | str:
         """
-        Convert date created to XSD date literal (only for official names).
+        Builds the gnis:dateNameCreated of an official name.
 
-        :param value: Date string value (MM/DD/YYYY format in text files).
-        :param row: Dictionary representing a row from the text file.
-        :param graph: RDF graph (unused but required by interface).
-        :return: RDF Literal with XSD date datatype or empty string.
+        :param value: Date as MM/DD/YYYY.
+        :param row: Source row; dates of other names are not written.
+        :return: An xsd:date literal; the value as a plain literal when it is
+            not MM/DD/YYYY. Returns an empty string for a name that is
+            not official or a blank date.
         """
-        # Only process date for official names
-        if not NamesTriplifier._is_official(row):
+        if not self._is_official(row) or not value.strip():
             return ""
-
-        if not value or value.strip() == "":
-            return ""
-
         try:
-            # Text files use MM/DD/YYYY format
-            dt = datetime.strptime(value, "%m/%d/%Y")
-            return Literal(dt.strftime("%Y-%m-%d"), datatype=XSD.date)
+            date = datetime.strptime(value, "%m/%d/%Y")
+            return Literal(date.strftime("%Y-%m-%d"), datatype=XSD.date)
         except ValueError:
             return Literal(value)
 
@@ -144,19 +109,19 @@ class NamesTriplifier:
         Checks whether the row's name is the feature's official name.
 
         The current products mark names "Official" or "Variant"; legacy
-        dumps mark them "Y" or "N".
+        dumps mark them "Y" or "N". The comparison ignores case.
 
-        :param row: Dictionary representing a source row.
-        :return: True if official name, False if variant.
+        :param row: Source row.
+        :return: True for the official name, False otherwise.
         """
         return row.get("feature_name_official", "").lower() in ("official", "y")
 
 
 def main():
-    """Run the names triplifier."""
-    # Ensure output directory exists
-    config.output_directory.mkdir(parents=True, exist_ok=True)
-    NamesTriplifier()
+    """
+    Writes names.nt.gz from the input directory.
+    """
+    NamesTriplifier().run()
 
 
 if __name__ == "__main__":

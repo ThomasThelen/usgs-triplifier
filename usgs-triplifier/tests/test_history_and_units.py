@@ -20,7 +20,7 @@ def test_history_end_to_end(data_dirs):
         ],
     )
 
-    HistoryTriplifier()
+    HistoryTriplifier().run()
 
     graph = parse_nt_gz(output_dir / "history.nt.gz")
     gnisf = config.prefix_list["gnisf"]
@@ -51,7 +51,7 @@ def test_units_end_to_end(data_dirs):
         ],
     )
 
-    UnitsTriplifier()
+    UnitsTriplifier().run()
 
     graph = parse_nt_gz(output_dir / "units.nt.gz")
     gnisf = config.prefix_list["gnisf"]

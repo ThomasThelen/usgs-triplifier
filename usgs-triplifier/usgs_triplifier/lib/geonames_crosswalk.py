@@ -14,7 +14,7 @@ from ..output_files import OutputFiles
 from ..states import States
 from ..usgs_products import UsgsProducts
 from .crosswalk import OWL_SAMEAS
-from .gnis.triplifier import normalize_feature_id
+from .gnis.identifiers import FeatureIds
 
 US_DUMP_BASENAME = "US.zip"
 
@@ -131,7 +131,7 @@ def build_geonames_crosswalk() -> Path | None:
         return None
 
     gnis = _load_gnis()
-    gnis["feature_id"] = gnis["feature_id"].map(normalize_feature_id)
+    gnis["feature_id"] = gnis["feature_id"].map(FeatureIds.normalize)
     gnis["class_key"] = gnis["feature_class"].fillna("").str.replace(" ", "")
     gnis["key"] = _normalize_names(gnis["name"])
     gnis_keys = _with_variant_names(gnis)
@@ -207,7 +207,7 @@ def _with_variant_names(gnis: pd.DataFrame) -> pd.DataFrame:
         logger.info("No AllNames dataset staged; aligning on official names only")
         return gnis
     variants = pd.concat(frames, ignore_index=True).dropna()
-    variants["feature_id"] = variants["feature_id"].map(normalize_feature_id)
+    variants["feature_id"] = variants["feature_id"].map(FeatureIds.normalize)
     variants["key"] = _normalize_names(variants["feature_name"])
     extra = variants[["feature_id", "key"]].merge(
         gnis.drop(columns=["key"]), on="feature_id"

@@ -1,313 +1,255 @@
-import gzip
-import logging
+from collections.abc import Callable
 from datetime import datetime
 from typing import ClassVar
 
-from rdflib import Graph, Literal, URIRef
+from rdflib import Literal, URIRef
 from rdflib.namespace import OWL, XSD
 
-from .text_triplifier import triplify_text_files
-from .triplifier import (
-    NTStreamSink,
-    TriplifierConfig,
-    FieldDescriptor,
-    clean,
-    normalize_feature_id,
-)
 from ...config import config
 from ...output_files import OutputFiles
 from ...states import States
-from ...usgs_products import UsgsProducts
-
-# Class name mappings
-GNIS_CLASS_MAPPINGS = {
-    "Range": "MountainRange",
-    "Falls": "Waterfall",
-    "Woods": "Woodland",
-    "Oilfield": "OilField",
-    "Civil": "CivilGovernment",
-    "Pillar": "Rock",
-}
-
-# Track feature aliases for disambiguation
-feature_aliases: dict[str, list[str]] = {}
+from ...usgs_products import UsgsProduct, UsgsProducts
+from .identifiers import FeatureIds
+from .rdf import NTriplesWriter, Terms
+from .triplifier import FieldDescriptor, Triplifier
 
 
-class FeaturesTriplifier:
+class FeaturesTriplifier(Triplifier):
     """
-    Abstraction over creating triples out of the features dataset.
+    Converts the GNIS features (DomesticNames, or NationalFile in a legacy
+    dump) into features.nt.gz: each feature's id, class, state, county,
+    point geometry, map name and dates, plus its elevation for legacy dumps.
     """
 
-    _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
+    product: ClassVar[UsgsProduct] = UsgsProducts.FEATURES
+    output_name: ClassVar[str] = OutputFiles.FEATURES
+
+    # GNIS feature classes (spaces removed) whose usgs: class has a different
+    # name
+    CLASS_RENAMES: ClassVar[dict[str, str]] = {
+        "Range": "MountainRange",
+        "Falls": "Waterfall",
+        "Woods": "Woodland",
+        "Oilfield": "OilField",
+        "Civil": "CivilGovernment",
+        "Pillar": "Rock",
+    }
 
     def __init__(self):
-        config.output_directory.mkdir(parents=True, exist_ok=True)
-        field_mappings = {
-            "feature_id": FieldDescriptor(
-                predicate="gnis:featureId",
-                object=self.feature_id_object,
-            ),
-            "feature_class": FieldDescriptor(
-                predicate="rdf:type",
-                object=self.feature_class_object,
-            ),
+        """
+        Creates the triplifier with no aliases recorded.
+        """
+        # Alias id -> ids of the features with that alias, filled by subject()
+        self._aliases: dict[str, list[str]] = {}
+
+    def run(self) -> int:
+        """
+        Writes features.nt.gz, then feature-aliases.nt.gz from the aliases
+        recorded while the features were read.
+
+        :return: Number of triples written to features.nt.gz.
+        :raises FileNotFoundError: If the input directory has no features zip.
+        :raises ValueError: If a feature has no id or class.
+        """
+        self._aliases = {}
+        count = super().run()
+        self._write_aliases()
+        return count
+
+    def fields(self) -> dict[str, FieldDescriptor | Callable]:
+        """
+        Lists the feature columns that become triples.
+
+        :return: Mapping of column name to its field mapping.
+        """
+        fields = {
+            "feature_id": FieldDescriptor("gnis:featureId", self.plain_literal),
+            "feature_class": FieldDescriptor("rdf:type", self.feature_class_object),
             "state_name": FieldDescriptor(
-                predicate="gnis:state",
-                object=self.state_object,
-                optional=True,
+                "gnis:state", self.state_object, optional=True
             ),
             "county_name": FieldDescriptor(
-                predicate="gnis:county",
-                object=self.county_object,
-                optional=True,
+                "gnis:county", self.county_object, optional=True
             ),
             "prim_lat_dec": self.prim_lat_dec_field,
             "map_name": FieldDescriptor(
-                predicate="gnis:mapName",
-                object=self.map_name_object,
-                optional=True,
+                "gnis:mapName", self.english_literal, optional=True
             ),
             "date_created": FieldDescriptor(
-                predicate="gnis:dateFeatureCreated",
-                object=self.date_object,
-                optional=True,
+                "gnis:dateFeatureCreated", self.date_object, optional=True
             ),
             "date_edited": FieldDescriptor(
-                predicate="gnis:dateFeatureEdited",
-                object=self.date_object,
-                optional=True,
+                "gnis:dateFeatureEdited", self.date_object, optional=True
             ),
         }
-        # Only legacy dumps have an elevation column
         if config.legacy_dump:
-            field_mappings["elev_in_ft"] = self.elev_in_ft_field
-        triples_mapping = TriplifierConfig(
-            subject=self.get_subject,
-            fields=field_mappings,
-        )
-        # Legacy dumps put the features in NationalFile
-        triplify_text_files(
-            triples_mapping,
-            UsgsProducts.FEATURES.pattern_for(config.legacy_dump),
-            OutputFiles.FEATURES,
-        )
-        self._write_aliases()
+            fields["elev_in_ft"] = self.elev_in_ft_field
+        return fields
 
-    def get_subject(self, row: dict, graph: Graph) -> str | None:
+    def subject(self, row: dict[str, str], writer: NTriplesWriter) -> str:
         """
-        Generate subject IRI for a GNIS feature.
+        Builds the feature's IRI and records its alias.
 
-        :param row: Dictionary representing a source row.
-        :param graph: RDF graph (unused but required by interface).
-        :return: Subject IRI string or None if invalid.
+        Legacy dumps give only the state code (state_alpha), so this sets
+        row["state_name"] to the full name.
+
+        :param row: Source row.
+        :param writer: Writer the row's triples go to (unused).
+        :return: The feature's gnisf: IRI.
         """
-        feature_id = normalize_feature_id(row.get("feature_id", ""))
+        feature_id = FeatureIds.normalize(row.get("feature_id", ""))
 
-        # NationalFile rows carry only the state code; expand it here (rows
-        # are shared with the field processors, so gnis:state and the alias
-        # both see the full name)
         if not row.get("state_name") and row.get("state_alpha"):
-            alpha = str(row["state_alpha"])
+            alpha = row["state_alpha"]
             row["state_name"] = States.name_for(alpha) or alpha
 
-        # Get and normalize class name
-        feature_class = str(row.get("feature_class", "")).replace(" ", "")
-        if feature_class in GNIS_CLASS_MAPPINGS:
-            feature_class = GNIS_CLASS_MAPPINGS[feature_class]
-
-        # Get state name (GPKG uses state_name instead of state_alpha)
-        state_name = str(row.get("state_name", ""))
-
-        # Build feature alias
-        feature_name = str(row.get("feature_name", ""))
-        county_name = str(row.get("county_name", ""))
-        alias_id = f"{clean(state_name)}.{clean(county_name)}.{feature_class}.{clean(feature_name)}"
-
-        # Track aliases for later disambiguation
-        if alias_id in feature_aliases:
-            feature_aliases[alias_id].append(feature_id)
-        else:
-            feature_aliases[alias_id] = [feature_id]
+        alias = ".".join(
+            [
+                FeatureIds.alias_part(row.get("state_name", "")),
+                FeatureIds.alias_part(row.get("county_name", "")),
+                self._class_name(row.get("feature_class", "")),
+                FeatureIds.alias_part(row.get("feature_name", "")),
+            ]
+        )
+        self._aliases.setdefault(alias, []).append(feature_id)
 
         return f"gnisf:{feature_id}"
 
-    def feature_id_object(self, value: str, row: dict, graph: Graph) -> Literal:
+    def feature_class_object(self, value: str, row: dict) -> URIRef:
         """
-        Convert feature ID to literal.
+        Builds the rdf:type of the feature.
 
-        :param value: Feature ID value.
-        :param row: Dictionary representing a source row.
-        :param graph: RDF graph (unused but required by interface).
-        :return: RDF Literal containing the feature ID.
+        :param value: GNIS feature class, e.g. "Populated Place".
+        :param row: Source row (unused).
+        :return: The usgs: class IRI.
         """
-        return Literal(value)
+        return config.prefix_list["usgs"][self._class_name(value)]
 
-    def feature_class_object(self, value: str, row: dict, graph: Graph) -> URIRef:
+    def state_object(self, value: str, row: dict) -> URIRef:
         """
-        Convert feature class to RDF type.
+        Builds the gnis:state link to the state's alias.
 
-        :param value: Feature class name.
-        :param row: Dictionary representing a source row.
-        :param graph: RDF graph (unused but required by interface).
-        :return: URIRef for the corresponding USGS ontology class.
+        :param value: Full state name.
+        :param row: Source row (unused).
+        :return: The state's gnisf-alias: IRI.
         """
-        class_name = value.replace(" ", "")
-        if class_name in GNIS_CLASS_MAPPINGS:
-            class_name = GNIS_CLASS_MAPPINGS[class_name]
-        return config.prefix_list["usgs"][class_name]
+        return config.prefix_list["gnisf-alias"][FeatureIds.alias_part(value)]
 
-    def state_object(self, value: str, row: dict, graph: Graph) -> URIRef | str:
+    def county_object(self, value: str, row: dict) -> URIRef:
         """
-        Convert state name to feature alias URI.
+        Builds the gnis:county link to the county's alias (state.county).
 
-        :param value: State name value.
-        :param row: Dictionary representing a source row.
-        :param graph: RDF graph (unused but required by interface).
-        :return: URIRef for the state alias or empty string if no value.
-        """
-        if not value:
-            return ""
-        return config.prefix_list["gnisf-alias"][clean(value)]
-
-    def county_object(self, value: str, row: dict, graph: Graph) -> URIRef:
-        """
-        Convert county name to feature alias URI.
-
-        :param value: County name value.
-        :param row: Dictionary representing a source row.
-        :param graph: RDF graph (unused but required by interface).
-        :return: URIRef for the county alias or UnknownCounty if no value.
+        :param value: County name.
+        :param row: Source row.
+        :return: The county's gnisf-alias: IRI, or gnis:UnknownCounty for an
+            empty value.
         """
         if value:
-            state_name = str(row.get("state_name", ""))
-            return config.prefix_list["gnisf-alias"][
-                f"{clean(state_name)}.{clean(value)}"
-            ]
+            state = FeatureIds.alias_part(row.get("state_name", ""))
+            county = FeatureIds.alias_part(value)
+            return config.prefix_list["gnisf-alias"][f"{state}.{county}"]
         return config.prefix_list["gnis"]["UnknownCounty"]
 
-    def prim_lat_dec_field(self, value: str, row: dict, graph: Graph) -> dict | None:
+    def prim_lat_dec_field(
+        self, value: str, row: dict, writer: NTriplesWriter
+    ) -> dict | None:
         """
-        Process primary latitude and generate the point geometry.
+        Writes the feature's point geometry and links the feature to it.
 
-        :param value: Primary latitude value.
-        :param row: Dictionary representing a source row.
-        :param graph: RDF graph to add geometry triples to.
-        :return: Dictionary of predicate-object pairs or None if no geometry.
+        :param value: Primary latitude in decimal degrees.
+        :param row: Source row; prim_long_dec and feature_id are read from it.
+        :param writer: Writer the asWKT triple is added to.
+        :return: The geosparql:hasGeometry pair, or None when no geometry is written.
         """
-        # Unknown coordinates are written as "0.0" in the current products
-        # and "0" in legacy dumps
-        if not value or value in ("0.0", "0"):
+        lng = row.get("prim_long_dec") or ""
+        if not value or value in ("0.0", "0") or not lng:
             return None
 
-        lat = value
-        lng = str(row.get("prim_long_dec") or "")
-        if not lng:
-            return None
-
-        feature_id = normalize_feature_id(row.get("feature_id", ""))
-
-        geom_iri = f"{config.geo_base}/point/gnisf.{feature_id}"
-        point_wkt = f"POINT({lng} {lat})"
-
-        # Add WKT literal to geometry node
-        geom_uri = URIRef(geom_iri)
+        feature_id = FeatureIds.normalize(row.get("feature_id", ""))
+        geometry = URIRef(f"{config.geo_base}/point/gnisf.{feature_id}")
         geosparql = config.prefix_list["geosparql"]
-
-        wkt_literal = Literal(
-            f"<http://www.opengis.net/def/crs/OGC/1.3/CRS84>{point_wkt}",
-            datatype=geosparql["wktLiteral"],
+        writer.add(
+            (geometry, geosparql["asWKT"], Terms.wkt_literal(f"POINT({lng} {value})"))
         )
-        graph.add((geom_uri, geosparql["asWKT"], wkt_literal))
+        return {"geosparql:hasGeometry": [geometry]}
 
-        return {
-            "geosparql:hasGeometry": [f">{geom_iri}"],
-        }
-
-    def elev_in_ft_field(self, value: str, row: dict, graph: Graph) -> dict | None:
+    def elev_in_ft_field(
+        self, value: str, row: dict, writer: NTriplesWriter
+    ) -> dict | None:
         """
-        Process elevation in feet and return nested blank node with QUDT properties.
+        Builds the gnis:elevation blank node: a qudt:numericValue in feet
+        (xsd:double) with qudt:unit unit:FT.
 
-        :param value: Elevation value in feet.
-        :param row: Dictionary representing a source row.
-        :param graph: RDF graph (unused but required by interface).
-        :return: Dictionary with nested blank node properties or None if no elevation.
+        :param value: Elevation in feet.
+        :param row: Source row (unused).
+        :param writer: Writer the row's triples go to (unused).
+        :return: The gnis:elevation pair, or None when the value is blank or "0".
         """
-        elev_value = value.strip()
-        if not elev_value or elev_value == "0":
+        elevation = value.strip()
+        if not elevation or elevation == "0":
             return None
-
         return {
             "gnis:elevation": {
-                "qudt:numericValue": [f'^xsd:double"{elev_value}'],
+                "qudt:numericValue": [f'^xsd:double"{elevation}'],
                 "qudt:unit": ["unit:FT"],
             },
         }
 
-    def map_name_object(self, value: str, row: dict, graph: Graph) -> Literal:
+    def date_object(self, value: str, row: dict) -> Literal:
         """
-        Convert map name to language-tagged literal.
+        Builds a creation or edit date literal.
 
-        :param value: Map name value.
-        :param row: Dictionary representing a source row.
-        :param graph: RDF graph (unused but required by interface).
-        :return: RDF Literal with English language tag.
+        :param value: Date as MM/DD/YYYY, or an ISO 8601 timestamp such as
+            1998-10-06T06:13:42.
+        :param row: Source row (unused).
+        :return: An xsd:date literal, or the value as a plain literal when
+            it is in neither format.
         """
-        return Literal(value, lang="en")
-
-    def date_object(self, value: str, row: dict, graph: Graph) -> Literal | str:
-        """
-        Convert date string to XSD date literal.
-
-        :param value: Date string value.
-        :param row: Dictionary representing a source row.
-        :param graph: RDF graph (unused but required by interface).
-        :return: RDF Literal with XSD date datatype or empty string if no value.
-        """
-        if not value:
-            return ""
         try:
-            # Handle ISO format from GPKG (e.g., '1998-10-06T06:13:42')
             if "T" in value:
-                dt = datetime.fromisoformat(value)
+                date = datetime.fromisoformat(value)
             else:
-                dt = datetime.strptime(value, "%m/%d/%Y")
-            return Literal(dt.strftime("%Y-%m-%d"), datatype=XSD.date)
+                date = datetime.strptime(value, "%m/%d/%Y")
+            return Literal(date.strftime("%Y-%m-%d"), datatype=XSD.date)
         except ValueError:
             return Literal(value)
 
+    def _class_name(self, feature_class: str) -> str:
+        """
+        Converts a GNIS feature class to the local name of its usgs: class.
+
+        :param feature_class: GNIS feature class, e.g. "Populated Place".
+        :return: The class with spaces removed and CLASS_RENAMES applied,
+            e.g. "PopulatedPlace".
+        """
+        name = feature_class.replace(" ", "")
+        return self.CLASS_RENAMES.get(name, name)
+
     def _write_aliases(self) -> None:
         """
-        Writes the feature aliases collected while the features streamed.
+        Writes feature-aliases.nt.gz from the aliases recorded by subject().
         """
         gnisf = config.prefix_list["gnisf"]
         gnisf_alias = config.prefix_list["gnisf-alias"]
-        gnis = config.prefix_list["gnis"]
+        disambiguates_to = config.prefix_list["gnis"]["disambiguatesTo"]
 
-        # Stream the aliases out; millions of them accumulate over a full run
-        aliases_path = config.output_directory / OutputFiles.FEATURE_ALIASES
-        with gzip.open(aliases_path, "wt", encoding="utf-8") as out:
-            sink = NTStreamSink(out)
-            for alias, features in feature_aliases.items():
-                if not alias:
-                    continue
-                alias_uri = gnisf_alias[alias]
-
-                if len(features) == 1:
-                    # Unique - add owl:sameAs
-                    sink.add((alias_uri, OWL.sameAs, gnisf[features[0]]))
+        path = config.output_directory / OutputFiles.FEATURE_ALIASES
+        with NTriplesWriter(path) as writer:
+            for alias, feature_ids in self._aliases.items():
+                alias_iri = gnisf_alias[alias]
+                if len(feature_ids) == 1:
+                    writer.add((alias_iri, OWL.sameAs, gnisf[feature_ids[0]]))
                 else:
-                    # Ambiguous - add disambiguation links
-                    for feature_id in features:
-                        sink.add(
-                            (alias_uri, gnis["disambiguatesTo"], gnisf[feature_id])
-                        )
-        self._log.info(f"Aliases written to {aliases_path}")
+                    for feature_id in feature_ids:
+                        writer.add((alias_iri, disambiguates_to, gnisf[feature_id]))
+        self._log.info(f"Wrote {len(writer)} alias triples to {path}")
 
 
 def main():
-    """Run the features triplifier."""
-    config.output_directory.mkdir(parents=True, exist_ok=True)
-    FeaturesTriplifier()
+    """
+    Writes features.nt.gz and feature-aliases.nt.gz from the input directory.
+    """
+    FeaturesTriplifier().run()
 
 
 if __name__ == "__main__":

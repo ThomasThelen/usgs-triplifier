@@ -1,92 +1,65 @@
-from rdflib import Graph, Literal
+from collections.abc import Callable
+from typing import ClassVar
 
-from .text_triplifier import triplify_text_files
-from .triplifier import (
-    TriplifierConfig,
-    FieldDescriptor,
-    normalize_feature_id,
-)
-from ...config import config
+from rdflib import Literal
+
 from ...output_files import OutputFiles
-from ...usgs_products import UsgsProducts
+from ...usgs_products import UsgsProduct, UsgsProducts
+from .identifiers import FeatureIds
+from .rdf import NTriplesWriter
+from .triplifier import FieldDescriptor, Triplifier
 
 
-class HistoryTriplifier:
+class HistoryTriplifier(Triplifier):
     """
-    Abstraction over triplifying the feature descriptions and histories
+    Converts the GNIS feature descriptions and histories
+    into history.nt.gz as gnis:description and gnis:history literals.
     """
 
-    def __init__(self):
-        # Column mappings
-        field_mappings = {
+    product: ClassVar[UsgsProduct] = UsgsProducts.HISTORY
+    output_name: ClassVar[str] = OutputFiles.HISTORY
+
+    def fields(self) -> dict[str, FieldDescriptor | Callable]:
+        """
+        Lists the description and history columns.
+
+        :return: Mapping of column name to its field mapping.
+        """
+        return {
             "description": FieldDescriptor(
-                predicate="gnis:description",
-                object=HistoryTriplifier.create_description,
-                optional=True,
+                "gnis:description", self.text_object, optional=True
             ),
-            "history": FieldDescriptor(
-                predicate="gnis:history",
-                object=HistoryTriplifier.create_history,
-                optional=True,
-            ),
+            "history": FieldDescriptor("gnis:history", self.text_object, optional=True),
         }
-        triples_mapping = TriplifierConfig(
-            subject=self.get_subject,
-            fields=field_mappings,
-        )
 
-        triplify_text_files(
-            triples_mapping,
-            UsgsProducts.HISTORY.pattern_for(config.legacy_dump),
-            OutputFiles.HISTORY,
-        )
-
-    @staticmethod
-    def get_subject(row: dict, graph: Graph) -> str | None:
+    def subject(self, row: dict[str, str], writer: NTriplesWriter) -> str:
         """
-        Generate subject IRI for a GNIS feature.
+        Builds the IRI of the feature the description and history belong to.
 
-        :param row: Dictionary representing a row from the GPKG table.
-        :param graph: RDF graph (unused but required by interface).
-        :return: Subject IRI string or None if invalid.
+        :param row: Source row.
+        :param writer: Writer the row's triples go to (unused).
+        :return: The feature's gnisf: IRI.
         """
-        return f"gnisf:{normalize_feature_id(row.get('feature_id', ''))}"
+        return f"gnisf:{FeatureIds.normalize(row.get('feature_id', ''))}"
 
-    @staticmethod
-    def create_description(value: str, row: dict, graph: Graph) -> Literal | str:
+    def text_object(self, value: str, row: dict) -> Literal | str:
         """
-        Convert description to language-tagged literal.
+        Builds a description or history literal.
 
-        :param value: Description text value.
-        :param row: Dictionary representing a row from the GPKG table.
-        :param graph: RDF graph (unused but required by interface).
-        :return: RDF Literal with English language tag or empty string if no value.
+        :param value: The text.
+        :param row: Source row (unused).
+        :return: The text without surrounding whitespace as an English
+            literal, or an empty string when it is blank.
         """
-        # Skip empty or whitespace-only descriptions
-        if not value or value.strip() == "":
-            return ""
-        return Literal(value.strip(), lang="en")
-
-    @staticmethod
-    def create_history(value: str, row: dict, graph: Graph) -> Literal | str:
-        """
-        Convert history to language-tagged literal.
-
-        :param value: History text value.
-        :param row: Dictionary representing a row from the GPKG table.
-        :param graph: RDF graph (unused but required by interface).
-        :return: RDF Literal with English language tag or empty string if no value.
-        """
-        # Skip empty or whitespace-only history
-        if not value or value.strip() == "":
-            return ""
-        return Literal(value.strip(), lang="en")
+        text = value.strip()
+        return Literal(text, lang="en") if text else ""
 
 
 def main():
-    """Run the history triplifier."""
-    config.output_directory.mkdir(parents=True, exist_ok=True)
-    HistoryTriplifier()
+    """
+    Writes history.nt.gz from the input directory.
+    """
+    HistoryTriplifier().run()
 
 
 if __name__ == "__main__":

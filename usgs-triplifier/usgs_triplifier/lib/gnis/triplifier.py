@@ -1,208 +1,138 @@
 import logging
-import re
+from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, ClassVar
 
-from rdflib import BNode, Graph, Literal, URIRef
-from rdflib.plugins.serializers.nt import _nt_row
+from rdflib import Literal
 
 from ...config import config
-
-logger = logging.getLogger(__name__)
-
-
-class NTStreamSink:
-    """
-    Graph-shaped triple sink that streams each triple as an N-Triples line.
-
-    The full datasets are far too large to hold as rdflib Graphs (the
-    indexes cost well over a kilobyte per triple), and each row's triples
-    are independent, so they are written the moment they are produced and
-    peak memory stays flat. Duplicate triples are not collapsed here; the
-    ETL removes them in a dedicated pass over the finished files.
-    """
-
-    def __init__(self, out=None):
-        self._out = out
-        self._count = 0
-
-    def add(self, triple) -> None:
-        self._out.write(_nt_row(triple))
-        self._count += 1
-
-    def bind(self, prefix, namespace) -> None:
-        """No-op: N-Triples has no prefixes."""
-
-    def __len__(self) -> int:
-        return self._count
+from ...usgs_products import UsgsProduct
+from .rdf import NTriplesWriter, Terms
+from .text_source import TextSource
 
 
 @dataclass
 class FieldDescriptor:
-    """Describes how to map a field to RDF predicates/objects."""
+    """
+    Maps one source column to one triple about the row's subject.
+
+    :param predicate: Predicate in the term notation of Terms, e.g. "gnis:state".
+    :param object: Function that builds the triple's object from the column.
+        Called with the column's value and the whole row.
+    :param optional: When False, a row with an empty value for the column
+        raises ValueError. When True, the column is skipped for that row.
+    """
 
     predicate: str
-    object: Callable[[str, dict, Graph], Any] | None = None
+    object: Callable[[str, dict], Any]
     optional: bool = False
 
 
-@dataclass
-class TriplifierConfig:
-    """Configuration for the triplifier."""
-
-    subject: Callable[[dict, Graph], str | None]
-    fields: dict[str, FieldDescriptor | Callable]
-
-
-def normalize_feature_id(raw: Any) -> str:
+class Triplifier(ABC):
     """
-    Normalize a feature id to the canonical string form used in gnisf: IRIs.
-
-    :param raw: Feature id as read from a GPKG table or text file.
-    :return: Canonical feature id string.
+    Converts one GNIS text product into a gzipped N-Triples file in the
+    output directory.
     """
-    if isinstance(raw, (int, float)):
-        return str(int(raw))
-    return str(raw).lstrip("0") or "0"
 
+    product: ClassVar[UsgsProduct]
+    output_name: ClassVar[str]
 
-def clean(s: str) -> str:
-    """
-    Clean IRIs by replacing non-word characters with underscores.
+    _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
-    :param s: String to clean.
-    :return: Cleaned string with non-word characters replaced by underscores.
-    """
-    return re.sub(r"[^\w]", "_", s)
+    def run(self) -> int:
+        """
+        Writes the triples for every row of the product.
 
+        :return: Number of triples written.
+        :raises FileNotFoundError: If the input directory has no zip for the product.
+        :raises ValueError: If a row has no value for a required column.
+        """
+        source = TextSource(
+            config.input_directory, self.product.pattern_for(config.legacy_dump)
+        )
+        fields = self.fields()
+        with NTriplesWriter(config.output_directory / self.output_name) as writer:
+            for row in source.rows():
+                self._write_row(row, fields, writer)
+        self._log.info(f"Wrote {len(writer)} triples to {writer.path}")
+        return len(writer)
 
-def _process_row(
-    row_dict: dict, triplifier_config: TriplifierConfig, sink: NTStreamSink
-) -> None:
-    """
-    Emit the triples for one source row into the sink.
+    @abstractmethod
+    def subject(self, row: dict[str, str], writer: NTriplesWriter) -> str | None:
+        """
+        Builds the IRI of the resource a row describes. Runs before the
+        row's fields, so it may add values to the row for them to use.
 
-    :param row_dict: Source row as a mapping of column name to value.
-    :param triplifier_config: Subject function and field mappings to apply.
-    :param sink: Streaming triple sink the row's triples are written to.
-    :raises ValueError: If a non-optional field has no value.
-    """
-    subject_iri = triplifier_config.subject(row_dict, sink)
-    if not subject_iri:
-        return
+        :param row: Source row.
+        :param writer: Writer the row's triples go to.
+        :return: Subject IRI in the term notation, or None to skip the row.
+        """
 
-    subject = _resolve_iri(subject_iri)
+    @abstractmethod
+    def fields(self) -> dict[str, FieldDescriptor | Callable]:
+        """
+        Lists the columns that become triples and how.
 
-    for field_name, descriptor in triplifier_config.fields.items():
-        value = row_dict.get(field_name)
-        value = "" if value is None else str(value)
+        :return: Mapping of column name to its FieldDescriptor or field callable.
+        """
 
-        if callable(descriptor) and not isinstance(descriptor, FieldDescriptor):
-            pairs = descriptor(value, row_dict, sink)
-            if pairs:
-                _add_pairs(sink, subject, pairs)
-        elif isinstance(descriptor, FieldDescriptor):
+    @staticmethod
+    def plain_literal(value: str, row: dict) -> Literal:
+        """
+        Object for a FieldDescriptor that writes the value unchanged.
+
+        :param value: Column value.
+        :param row: Source row (unused).
+        :return: The value as a plain literal.
+        """
+        return Literal(value)
+
+    @staticmethod
+    def english_literal(value: str, row: dict) -> Literal:
+        """
+        Object for a FieldDescriptor that writes a name or other English text.
+
+        :param value: Column value.
+        :param row: Source row (unused).
+        :return: The value as an English literal.
+        """
+        return Literal(value, lang="en")
+
+    def _write_row(
+        self,
+        row: dict[str, str],
+        fields: dict[str, FieldDescriptor | Callable],
+        writer: NTriplesWriter,
+    ) -> None:
+        """
+        Writes the triples for one row.
+
+        :param row: Source row.
+        :param fields: The mappings from fields().
+        :param writer: Writer the triples are added to.
+        :raises ValueError: If a required column has no value.
+        """
+        subject_iri = self.subject(row, writer)
+        if not subject_iri:
+            return
+        subject = Terms.resolve_iri(subject_iri)
+
+        for column, mapping in fields.items():
+            value = row.get(column) or ""
+
+            if not isinstance(mapping, FieldDescriptor):
+                pairs = mapping(value, row, writer)
+                if pairs:
+                    Terms.add_pairs(writer, subject, pairs)
+                continue
+
             if not value:
-                if descriptor.optional:
+                if mapping.optional:
                     continue
-                raise ValueError(f'Missing value for column "{field_name}"')
-            if descriptor.predicate and descriptor.object:
-                predicate = _resolve_iri(descriptor.predicate)
-                obj = descriptor.object(value, row_dict, sink)
-                if obj:
-                    _add_triple(sink, subject, predicate, obj)
-
-
-def _resolve_iri(iri_str: str) -> URIRef:
-    """
-    Resolve a prefixed IRI string to a full URIRef.
-
-    :param iri_str: IRI string, possibly prefixed (e.g., 'gnisf:123').
-    :return: Full URIRef representing the node.
-    """
-    if iri_str.startswith(">"):
-        return URIRef(iri_str[1:])
-    if ":" in iri_str:
-        prefix, local = iri_str.split(":", 1)
-        if prefix in config.prefix_list:
-            ns = config.prefix_list[prefix]
-            if hasattr(ns, "__getitem__"):
-                return ns[local]
-            return URIRef(str(ns) + local)
-    return URIRef(iri_str)
-
-
-def _add_pairs(graph: Graph, subject: URIRef, pairs: dict) -> None:
-    """
-    Add predicate-object pairs for a subject.
-
-    :param graph: RDF graph to add triples to.
-    :param subject: Subject node.
-    :param pairs: Dictionary of predicate -> list of objects.
-    """
-    for predicate_str, objects in pairs.items():
-        predicate = _resolve_iri(predicate_str)
-        if not isinstance(objects, list):
-            objects = [objects]
-        for obj in objects:
-            _add_triple(graph, subject, predicate, obj)
-
-
-def _add_triple(graph: Graph, subject: URIRef, predicate: URIRef, obj: Any) -> None:
-    """
-    Add a single triple to the graph.
-
-    Dict objects become a blank node whose predicate-object pairs are added
-    recursively (e.g. an elevation node with qudt:numericValue/qudt:unit).
-
-    :param graph: RDF graph to add the triple to.
-    :param subject: Subject node.
-    :param predicate: Predicate URIRef.
-    :param obj: Object (string notation, URIRef, Literal, or nested dict).
-    """
-    if isinstance(obj, (URIRef, Literal)):
-        graph.add((subject, predicate, obj))
-    elif isinstance(obj, str):
-        parsed_obj = _parse_object(obj)
-        graph.add((subject, predicate, parsed_obj))
-    elif isinstance(obj, dict):
-        node = BNode()
-        graph.add((subject, predicate, node))
-        _add_pairs(graph, node, obj)
-    else:
-        logger.warning(f"Skipping unsupported object type {type(obj)!r}: {obj}")
-
-
-def _parse_object(obj_str: str) -> URIRef | Literal:
-    """
-    Parse a graphy-style object notation.
-
-    Notation:
-        - '"value' -> plain literal
-        - '@lang"value' -> language-tagged literal
-        - '^datatype"value' -> typed literal
-        - 'prefix:local' -> named node
-        - '>uri' -> full URI
-
-    :param obj_str: Object string in graphy notation.
-    :return: Parsed URIRef or Literal.
-    """
-    if obj_str.startswith(">"):
-        return URIRef(obj_str[1:])
-    elif obj_str.startswith('"'):
-        return Literal(obj_str[1:])
-    elif obj_str.startswith("@"):
-        lang_end = obj_str.index('"')
-        lang = obj_str[1:lang_end]
-        value = obj_str[lang_end + 1 :]
-        return Literal(value, lang=lang)
-    elif obj_str.startswith("^"):
-        type_end = obj_str.index('"')
-        datatype_str = obj_str[1:type_end]
-        value = obj_str[type_end + 1 :]
-        datatype = _resolve_iri(datatype_str)
-        return Literal(value, datatype=datatype)
-    elif ":" in obj_str:
-        return _resolve_iri(obj_str)
-    else:
-        return Literal(obj_str)
+                raise ValueError(f'Missing value for column "{column}"')
+            obj = mapping.object(value, row)
+            if obj:
+                Terms.add_object(
+                    writer, subject, Terms.resolve_iri(mapping.predicate), obj
+                )

@@ -32,7 +32,7 @@ import requests
 from ..config import config
 from ..output_files import OutputFiles
 from .crosswalk import OWL_SAMEAS
-from .gnis.triplifier import normalize_feature_id
+from .gnis.identifiers import FeatureIds
 
 GAZETTEER_FILES = ["Gaz_counties_national.zip", "Gaz_place_national.zip"]
 
@@ -69,7 +69,7 @@ def build_census_crosswalk() -> Path | None:
             geoid = str(row.GEOID).strip()
             if not ansi.isdigit() or not geoid:
                 continue
-            feature = f"<{config.lod_base}/gnis/feature/{normalize_feature_id(ansi)}>"
+            feature = f"<{config.lod_base}/gnis/feature/{FeatureIds.normalize(ansi)}>"
             out.write(f'{feature} {geoid_property} "{geoid}" .\n')
             out.write(
                 f"{feature} {OWL_SAMEAS} "
