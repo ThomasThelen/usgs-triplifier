@@ -26,6 +26,7 @@ Every ETL run publishes a new release into the archive directory
 | `gnis-ld-<YYMMDD>.nt.gz` | The release file (gzipped N-Triples) |
 | `gnis-ld-<YYMMDD>.meta.json` | Sidecar with the display fields the website reads: `id`, `published`, `triples`, `size` |
 | `gnis-ld-historical-<YYMMDD>.nt.gz` (+ sidecar) | The historical release file with the records retained for features dropped upstream |
+| `ontologies/gnis.ttl`, `ontologies/usgs.ttl` | The two ontologies, from `usgs_triplifier/ontologies/`, with the base IRI of this deployment. Each release file also contains them as N-Triples, and GraphDB loads them with the data |
 
 These files are used by gnis-ld.org, which scans the volume mount and derives its downloads page, `releases.json` manifest, and VoID release records from the filenames and sidecars.
 

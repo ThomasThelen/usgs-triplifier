@@ -29,6 +29,10 @@ class OutputFiles:
     ONTOLOGY_GNIS: ClassVar[str] = "ontology-gnis.nt.gz"
     ONTOLOGY_USGS: ClassVar[str] = "ontology-usgs.nt.gz"
 
+    # Subdirectory of the archive output directory that gets the Turtle
+    # copies of the ontologies, which the website serves
+    ONTOLOGY_ARCHIVE_DIR: ClassVar[str] = "ontologies"
+
     # Records kept from earlier releases for features no longer in the USGS
     # products.
     RETAINED: ClassVar[str] = "retained-features.nt.gz"

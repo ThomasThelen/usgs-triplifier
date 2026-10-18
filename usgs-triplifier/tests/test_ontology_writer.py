@@ -50,3 +50,20 @@ def test_output_is_identical_across_runs(config):
     second = writer.write()[1].read_bytes()
 
     assert first == second
+
+
+def test_turtle_copies_are_written_to_the_archive(config):
+    config.lod_base = "http://example.org/lod"
+    config.site_base = "https://example.org"
+
+    OntologyWriter(config).write()
+
+    archive_dir = config.archive_output_directory / OutputFiles.ONTOLOGY_ARCHIVE_DIR
+    assert sorted(p.name for p in archive_dir.iterdir()) == ["gnis.ttl", "usgs.ttl"]
+    text = (archive_dir / "gnis.ttl").read_text()
+    assert "gnis-ld.org" not in text
+    assert "@prefix gnis: <http://example.org/lod/gnis/ontology/>" in text
+    # The Turtle copy and the N-Triples file describe the same graph
+    turtle = Graph().parse(archive_dir / "gnis.ttl", format="turtle")
+    ntriples = parse_nt_gz(config.output_directory / OutputFiles.ONTOLOGY_GNIS)
+    assert set(turtle) == set(ntriples)
