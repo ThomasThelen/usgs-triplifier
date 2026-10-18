@@ -33,7 +33,7 @@ include = ["usgs_triplifier*"]
 exclude = ["usgs_triplifier.data*"]
 
 [tool.setuptools.package-data]
-usgs_triplifier = ["shapes/*.ttl"]
+usgs_triplifier = ["shapes/*.ttl", "ontologies/*.ttl"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

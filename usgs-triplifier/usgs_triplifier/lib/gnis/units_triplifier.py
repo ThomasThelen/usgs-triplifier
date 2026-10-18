@@ -18,7 +18,7 @@ class UnitsTriplifier(Triplifier):
     Each COUNTRY, STATE and COUNTY unit is written with its gnisf-alias: IRI
     (country, state, or state.county) as the subject, which is the IRI that
     features' gnis:country, gnis:state and gnis:county triples point at. The
-    alias is written owl:sameAs the unit's gnisf: IRI, which carries the
+    alias is written owl:sameAs the unit's gnisf: IRI, which has the
     gnis:featureId.
     """
 

@@ -170,3 +170,17 @@ def test_export_historical_publishes_companion_dump(data_dirs, archive_dir, conf
     sidecar = (archive_dir / "gnis-ld-historical-260701.meta.json").read_text()
     assert '"id": "260701"' in sidecar
     assert f'"triples": "{len(published):,}"' in sidecar
+
+
+def test_ontology_terms_are_never_retained(data_dirs, archive_dir, config):
+    # A term declared in an earlier release's ontology and absent now is not
+    # a dropped record
+    term = f'<{LOD}/gnis/ontology/oldProperty> {LABEL} "Old property"@en .'
+    _write_dump(archive_dir, "gnis-ld-260401.nt.gz", DROPPED_RECORD + [term])
+    _write_dump(archive_dir, "gnis-ld-260701.nt.gz", [KEPT_LINE])
+
+    RetentionBuilder(config).build(BUILD_TIME)
+    lines = _retained_lines(config)
+
+    assert term not in lines
+    assert DROPPED_RECORD[0] in lines

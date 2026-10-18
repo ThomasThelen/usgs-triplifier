@@ -36,6 +36,10 @@ class RetentionBuilder:
 
     RDF_TYPE: ClassVar[str] = "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>"
 
+    # Paths under lod_base whose subjects are ontology terms, which are not
+    # records and are never retained
+    ONTOLOGY_PATHS: ClassVar[tuple[str, ...]] = ("/gnis/ontology/", "/usgs/ontology/")
+
     def __init__(self, config: Config) -> None:
         """
         Creates the builder.
@@ -44,6 +48,9 @@ class RetentionBuilder:
             directories and lod_base.
         """
         self.config = config
+        self._ontology_prefixes = tuple(
+            f"<{config.lod_base}{path}" for path in self.ONTOLOGY_PATHS
+        )
 
     def build(self, build_time: datetime) -> Path | None:
         """
@@ -175,7 +182,8 @@ class RetentionBuilder:
         lines of the blank nodes they reference.
 
         A dropped feature's geometry and alias are IRI subjects of their own,
-        so they are collected by the same comparison as the feature.
+        so they are collected by the same comparison as the feature. Ontology
+        terms are left out.
 
         :param source: Earlier release or historical release file.
         :param covered: IRI subjects to leave out, which are those in the new
@@ -185,7 +193,9 @@ class RetentionBuilder:
         keep = {
             s
             for line in self._lines(source)
-            if (s := self._subject(line)).startswith("<") and s not in covered
+            if (s := self._subject(line)).startswith("<")
+            and s not in covered
+            and not s.startswith(self._ontology_prefixes)
         }
         if not keep:
             return []

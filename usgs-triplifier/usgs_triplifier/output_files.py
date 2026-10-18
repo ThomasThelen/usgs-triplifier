@@ -24,6 +24,11 @@ class OutputFiles:
     WIKIDATA_GEONAMES_PAIRS: ClassVar[str] = "wikidata-geonames.csv"
     GEONAMES_QA_REPORT: ClassVar[str] = "geonames-qa-disagreements.csv"
 
+    # The gnis and usgs ontologies, written as N-Triples so they are released
+    # and loaded with the data
+    ONTOLOGY_GNIS: ClassVar[str] = "ontology-gnis.nt.gz"
+    ONTOLOGY_USGS: ClassVar[str] = "ontology-usgs.nt.gz"
+
     # Records kept from earlier releases for features no longer in the USGS
     # products.
     RETAINED: ClassVar[str] = "retained-features.nt.gz"

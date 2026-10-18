@@ -18,6 +18,7 @@ from usgs_triplifier.lib.gnis import (
     NamesTriplifier,
     UnitsTriplifier,
 )
+from usgs_triplifier.lib.ontology_writer import OntologyWriter
 from usgs_triplifier.lib.retention import RetentionBuilder
 from usgs_triplifier.lib.validation import ReleaseValidator
 from usgs_triplifier.lib.wikidata_crosswalk import WikidataCrosswalk
@@ -69,6 +70,8 @@ class Pipeline:
         """
         self.download()
         self.triplify()
+        self._log.info("Writing the ontologies")
+        OntologyWriter(self.config).write()
         self.add_crosswalks()
         Deduplicator(self.config).run()
 
