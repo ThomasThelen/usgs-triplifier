@@ -15,10 +15,14 @@ class FeatureIds:
         :param raw: Feature id as read from a source file. Numbers are
             converted to integers; strings lose their leading zeros.
         :return: The id as a string; "0" for an empty or all-zero id.
+        :raises ValueError: If the id is a string with a non-digit character.
         """
         if isinstance(raw, (int, float)):
             return str(int(raw))
-        return str(raw).lstrip("0") or "0"
+        text = str(raw).strip()
+        if text and not text.isdigit():
+            raise ValueError(f"Feature id {raw!r} is not a number")
+        return text.lstrip("0") or "0"
 
     @staticmethod
     def alias_part(text: str) -> str:

@@ -16,7 +16,7 @@ def test_names_end_to_end(data_dirs, config):
         "Text/AllNames_National.txt",
         [
             HEADER,
-            '1|Blue Lake|Official|"History of Alameda County" p. 12|01/02/1998',
+            '1|Blue Lake|Official|"""History of Alameda County"" p. 12"|01/02/1998',
             "1|Old Blue|Variant|ignored citation|03/04/1999",
             "2|Twin Peaks|Official|Citation Unknown|bogus-date",
         ],
@@ -41,7 +41,7 @@ def test_names_end_to_end(data_dirs, config):
         Literal("1998-01-02", datatype=XSD.date)
     ]
 
-    # Embedded double quotes survive the pipe-delimited parsing intact
+    # A quoted field is unwrapped and its doubled quotes become single ones
     citations = list(graph.objects(gnisf["1"], gnis["citation"]))
     assert citations == [Literal('"History of Alameda County" p. 12', lang="en")]
 

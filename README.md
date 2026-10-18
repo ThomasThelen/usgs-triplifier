@@ -32,6 +32,9 @@ These files are used by gnis-ld.org, which scans the volume mount and derives it
 ### Retention
 After a release is exported, it is compared with every earlier release in the archive, including legacy dumps added later. The records of every subject missing from the new release are copied from the newest earlier release that has them, written to the historical release file, and loaded into GraphDB, so their URIs keep resolving. Each such feature is typed `usgs:HistoricalFeature` and given `gnis:lastAppearedIn <.../gnis/release/ID>` for that release. A feature that reappears upstream leaves the historical set.
 
+### Loading
+Each run copies the release files to the GraphDB import directory, clears the repository, imports the files and waits for the import to finish.
+
 ## Building releases from legacy dumps
 
 A legacy dump is a GNIS export in the file format USGS used until 2021. USGS keeps these exports, up to 2021-08-25, under `prd-tnm/StagedProducts/GeographicNames/Archive/`. To publish one as a release:
@@ -56,6 +59,11 @@ The legacy file format differs from the current products in its file names, uppe
 | `DOWNLOAD_DATA` | Set `false` to reuse already-downloaded inputs |
 | `LEGACY_DUMP_DATE` | Build the release from the legacy dump with this date |
 | `RELEASE_DATE` | Date to put on the release instead of the time of the run |
+| `GRAPHDB_URL` | GraphDB the release is loaded into |
+| `GDB_USER` / `GDB_PASS` / `GDB_DEFAULT_PASS` | Admin user, the password the ETL sets for it, and the password GraphDB starts with |
+| `GRAPHDB_IMPORT_DIRECTORY` | Directory GraphDB imports server files from |
+| `GRAPHDB_IMPORT_TIMEOUT` / `GRAPHDB_IMPORT_POLL` | How long the ETL waits for the import to finish, and how often it checks |
+| `REPOSITORY_ID` / `REPOSITORY_CONFIG` | Repository name and the Turtle file it is created from (`etl/gnis-ld-config.ttl`) |
 
 
 ## Developing
@@ -63,7 +71,7 @@ The legacy file format differs from the current products in its file names, uppe
 There are three ways to run:
 
 1. Run the ETL directly with uv (Python 3.14), against a GraphDB at `GRAPHDB_URL`:
-   `cd usgs-triplifier && GDB_PASS=<password> PYTHONPATH=../etl/code uv run python ../etl/code/etl.py`.
+   `cd usgs-triplifier && GDB_PASS=<password> uv run python ../etl/code/etl.py`.
    The settings are read from the environment variables in the table above.
 2. Run the local Docker stack, which starts GraphDB and runs the ETL
 3. Deploy with the gnis-deployment repository

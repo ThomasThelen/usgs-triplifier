@@ -15,9 +15,11 @@ class UnitsTriplifier(Triplifier):
     """
     Converts the GNIS government units (GovernmentUnits) into units.nt.gz.
 
-    Only COUNTY and STATE rows are written. Each unit's gnisf-alias: IRI
-    (state, or state.county) is written owl:sameAs its gnisf: IRI. Features'
-    gnis:state and gnis:county triples have the alias IRI as their object.
+    Each COUNTRY, STATE and COUNTY unit is written with its gnisf-alias: IRI
+    (country, state, or state.county) as the subject, which is the IRI that
+    features' gnis:country, gnis:state and gnis:county triples point at. The
+    alias is written owl:sameAs the unit's gnisf: IRI, which carries the
+    gnis:featureId.
     """
 
     product: ClassVar[UsgsProduct] = UsgsProducts.UNITS
@@ -30,7 +32,6 @@ class UnitsTriplifier(Triplifier):
         :return: Mapping of column name to its field mapping.
         """
         return {
-            "feature_id": FieldDescriptor("gnis:featureId", self.plain_literal),
             "unit_type": FieldDescriptor("rdf:type", self.unit_type_object),
             "county_numeric": FieldDescriptor(
                 "gnis:countyCode", self.county_numeric_object, optional=True
@@ -51,12 +52,13 @@ class UnitsTriplifier(Triplifier):
 
     def subject(self, row: dict[str, str], writer: NTriplesWriter) -> str | None:
         """
-        Builds the unit's IRI and writes owl:sameAs from its alias to it.
+        Builds the unit's alias IRI and writes owl:sameAs from it to the
+        unit's gnisf: IRI.
 
         :param row: Source row.
         :param writer: Writer the owl:sameAs triple is added to.
-        :return: The unit's gnisf: IRI, or None for a unit that is neither a
-            COUNTY nor a STATE.
+        :return: The unit's gnisf-alias: IRI, or None for a unit type other
+            than COUNTRY, STATE or COUNTY.
         """
         unit_type = row.get("unit_type", "")
         state = FeatureIds.alias_part(row.get("state_name", ""))
@@ -64,6 +66,8 @@ class UnitsTriplifier(Triplifier):
             alias = f"{state}.{FeatureIds.alias_part(row.get('county_name', ''))}"
         elif unit_type == "STATE":
             alias = state
+        elif unit_type == "COUNTRY":
+            alias = FeatureIds.alias_part(row.get("country_name", ""))
         else:
             return None
 
@@ -75,7 +79,7 @@ class UnitsTriplifier(Triplifier):
                 self.config.prefix_list["gnisf"][feature_id],
             )
         )
-        return f"gnisf:{feature_id}"
+        return f"gnisf-alias:{alias}"
 
     def unit_type_object(self, value: str, row: dict) -> URIRef:
         """
@@ -128,12 +132,14 @@ class UnitsTriplifier(Triplifier):
             return {"gnis:state": [f"gnisf-alias:{FeatureIds.alias_part(value)}"]}
         return {"gnis:stateName": [Literal(value, lang="en")]}
 
-    def country_name_object(self, value: str, row: dict) -> URIRef:
+    def country_name_object(self, value: str, row: dict) -> URIRef | str:
         """
-        Builds the gnis:country link to the country's alias.
+        Builds the gnis:country link from a STATE or COUNTY to the country's alias.
 
         :param value: Country name.
-        :param row: Source row (unused).
-        :return: The country's gnisf-alias: IRI.
+        :param row: Source row; a COUNTRY row gets no link to itself.
+        :return: The country's gnisf-alias: IRI, or an empty string for a COUNTRY.
         """
+        if row.get("unit_type") == "COUNTRY":
+            return ""
         return self.config.prefix_list["gnisf-alias"][FeatureIds.alias_part(value)]

@@ -34,3 +34,16 @@ def test_release_file_names_round_trip_through_the_patterns():
     assert OutputFiles.sidecar_for(Path("/a/gnis-ld-260701.nt.gz")) == Path(
         "/a/gnis-ld-260701.meta.json"
     )
+
+
+def test_zip_paths_leaves_out_the_current_product_for_a_legacy_dump(tmp_path):
+    for name in ("AllNames.zip", "AllNames_National_Text.zip", "Other.zip"):
+        (tmp_path / name).write_bytes(b"")
+
+    assert UsgsProducts.NAMES.zip_paths(tmp_path, legacy_dump=True) == [
+        tmp_path / "AllNames.zip"
+    ]
+    assert UsgsProducts.NAMES.zip_paths(tmp_path, legacy_dump=False) == [
+        tmp_path / "AllNames_National_Text.zip"
+    ]
+    assert UsgsProducts.NAMES.zip_paths(tmp_path / "missing", legacy_dump=False) == []

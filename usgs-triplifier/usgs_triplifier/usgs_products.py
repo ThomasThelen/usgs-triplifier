@@ -1,4 +1,7 @@
+import csv
 from dataclasses import dataclass
+from fnmatch import fnmatch
+from pathlib import Path
 from typing import ClassVar
 
 
@@ -34,6 +37,25 @@ class UsgsProduct:
         if self.legacy_pattern is None:
             raise ValueError(f"Legacy dumps have no equivalent of {self.key}")
         return self.legacy_pattern
+
+    def zip_paths(self, directory: Path, legacy_dump: bool) -> list[Path]:
+        """
+        Finds the product's zips in a directory.
+
+        A legacy pattern can also match the current product's zip (AllNames*.zip
+        matches AllNames_National_Text.zip), so for a legacy dump the zips
+        matching the current pattern are left out.
+
+        :param directory: Directory holding the zips.
+        :param legacy_dump: Whether the directory holds a legacy dump.
+        :return: The matching zips in name order; empty when there are none.
+        :raises ValueError: If legacy_dump is True and legacy dumps have no
+            such product.
+        """
+        paths = sorted(directory.glob(self.pattern_for(legacy_dump)))
+        if legacy_dump:
+            paths = [p for p in paths if not fnmatch(p.name, self.pattern)]
+        return paths
 
 
 class UsgsProducts:
@@ -72,6 +94,21 @@ class UsgsProducts:
         legacy_key="StagedProducts/GeographicNames/Archive/TopicalGazetteers/Feature_Description_History.zip",
         legacy_pattern="Feature_Description_History*.zip",
     )
+
+    @staticmethod
+    def quoting_for(legacy_dump: bool) -> int:
+        """
+        Returns the csv quoting mode the text products are read with.
+
+        The current products wrap a field in double quotes when it contains a
+        double quote or a line break, doubling the quotes inside it. Legacy
+        dumps never wrap fields, and a field may start with a double quote
+        that is part of the value.
+
+        :param legacy_dump: Whether the input directory holds a legacy dump.
+        :return: csv.QUOTE_NONE for a legacy dump, otherwise csv.QUOTE_MINIMAL.
+        """
+        return csv.QUOTE_NONE if legacy_dump else csv.QUOTE_MINIMAL
 
     @classmethod
     def text_products(cls) -> list[UsgsProduct]:

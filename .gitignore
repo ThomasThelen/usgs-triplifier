@@ -8,3 +8,4 @@ usgs-triplifier/dist
 **/**.egg-info
 **/.pytest_cache
 .coverage
+usgs-triplifier/build

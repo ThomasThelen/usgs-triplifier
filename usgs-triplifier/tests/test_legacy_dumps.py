@@ -91,6 +91,17 @@ def test_names_from_legacy_all_names(data_dirs, monkeypatch, config):
             "FEATURE_ID|FEATURE_NAME|FEATURE_NAME_OFFICIAL|CITATION|DATE_CREATED",
             "1414314|Denali|Y|Board decision 2015|08/28/2015",
             "1414314|Mount McKinley|N||01/01/2000",
+            '2102872|"Alson H Smith, Junior Library"|Y||01/01/2000',
+        ],
+    )
+    # A current download left in the input directory is not read
+    make_text_zip(
+        input_dir,
+        "AllNames_National_Text.zip",
+        "Text/AllNames_National.txt",
+        [
+            "feature_id|feature_name|feature_name_official|citation|date_created",
+            "1414314|Mount McKinley|Official|Executive order|01/20/2025",
         ],
     )
 
@@ -108,6 +119,13 @@ def test_names_from_legacy_all_names(data_dirs, monkeypatch, config):
     assert list(graph.objects(gnisf["1414314"], gnis["alternativeName"])) == [
         Literal("Mount McKinley", lang="en")
     ]
+    # Legacy fields are not quoted, so a leading quote is part of the name
+    assert list(graph.objects(gnisf["2102872"], gnis["officialName"])) == [
+        Literal('"Alson H Smith, Junior Library"', lang="en")
+    ]
+    assert list(graph.objects(gnisf["1414314"], gnis["citation"])) == [
+        Literal("Board decision 2015", lang="en")
+    ]
 
 
 def test_history_from_legacy_description_history(data_dirs, monkeypatch, config):
@@ -120,6 +138,8 @@ def test_history_from_legacy_description_history(data_dirs, monkeypatch, config)
         [
             "FEATURE_ID|DESCRIPTION|HISTORY",
             "1414314|Highest summit in North America|Named for a president.",
+            '5213|A village|"The town plan divided the village',
+            "5214|A lake|Named in 1901.",
         ],
     )
 
@@ -133,6 +153,14 @@ def test_history_from_legacy_description_history(data_dirs, monkeypatch, config)
     ]
     assert list(graph.objects(gnisf["1414314"], gnis["history"])) == [
         Literal("Named for a president.", lang="en")
+    ]
+    # Legacy fields are not quoted, so an unclosed quote does not swallow
+    # the next row
+    assert list(graph.objects(gnisf["5213"], gnis["history"])) == [
+        Literal('"The town plan divided the village', lang="en")
+    ]
+    assert list(graph.objects(gnisf["5214"], gnis["history"])) == [
+        Literal("Named in 1901.", lang="en")
     ]
 
 
@@ -158,15 +186,12 @@ def test_units_from_legacy_govt_units(data_dirs, monkeypatch, config):
     gnis = config.prefix_list["gnis"]
     gnisf_alias = config.prefix_list["gnisf-alias"]
 
-    assert (gnisf["1419988"], RDF.type, gnis["County"]) in graph
-    assert list(graph.objects(gnisf["1419988"], gnis["state"])) == [
-        gnisf_alias["Alaska"]
-    ]
-    assert list(graph.objects(gnisf_alias["Alaska.Denali"], OWL.sameAs)) == [
-        gnisf["1419988"]
-    ]
-    assert (gnisf["1785533"], RDF.type, gnis["State"]) in graph
-    assert list(graph.objects(gnisf["1785533"], gnis["stateName"])) == [
+    denali = gnisf_alias["Alaska.Denali"]
+    assert (denali, RDF.type, gnis["County"]) in graph
+    assert list(graph.objects(denali, gnis["state"])) == [gnisf_alias["Alaska"]]
+    assert list(graph.objects(denali, OWL.sameAs)) == [gnisf["1419988"]]
+    assert (gnisf_alias["Alaska"], RDF.type, gnis["State"]) in graph
+    assert list(graph.objects(gnisf_alias["Alaska"], gnis["stateName"])) == [
         Literal("Alaska", lang="en")
     ]
 

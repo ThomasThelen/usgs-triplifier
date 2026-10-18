@@ -24,10 +24,17 @@ dev = [
     "ruff>=0.15.1",
 ]
 
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [tool.setuptools.packages.find]
 include = ["usgs_triplifier*"]
 exclude = ["usgs_triplifier.data*"]
 
+[tool.setuptools.package-data]
+usgs_triplifier = ["shapes/*.ttl"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = [".", "../etl/code"]

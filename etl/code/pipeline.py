@@ -23,7 +23,7 @@ from usgs_triplifier.lib.validation import ReleaseValidator
 from usgs_triplifier.lib.wikidata_crosswalk import WikidataCrosswalk
 
 from config import EtlConfig
-from graphdb_adapter import GraphDBAdapter
+from graphdb_adapter import GraphDBAdapter, GraphDBImportError
 
 
 class PipelineError(Exception):
@@ -167,23 +167,34 @@ class Pipeline:
         Replaces the GraphDB repository's contents with the output directory's
         RDF files, setting up security and the repository first if needed.
 
-        :raises PipelineError: If GraphDB rejects a request; the response is logged.
+        The files are copied to the import directory before the repository is
+        cleared, so a copy failure leaves the previous release in place.
+
+        :raises PipelineError: If the output directory has no RDF files,
+            GraphDB rejects a request, or the import fails; the response is logged.
         """
         graphdb = GraphDBAdapter(self.config)
+
+        def copy_triples() -> None:
+            if not graphdb.copy_triples():
+                raise PipelineError(
+                    f"No RDF files in {self.config.output_directory} to load"
+                )
+
         steps = [
             ("Enabling GraphDB security", graphdb.enable_security),
             ("Setting the GraphDB password", graphdb.set_password),
             ("Creating the repository", graphdb.create_repository_from_config),
+            ("Copying the RDF files to the import directory", copy_triples),
             ("Clearing the previous release", graphdb.clear_repository),
-            ("Copying the RDF files to the import directory", graphdb.copy_triples),
-            ("Starting the GraphDB import", graphdb.start_import),
+            ("Importing the RDF files", graphdb.import_files),
             ("Granting anonymous read access", graphdb.enable_guest_access),
         ]
         for description, step in steps:
             self._log.info(description)
             try:
                 step()
-            except requests.RequestException as error:
+            except (requests.RequestException, GraphDBImportError) as error:
                 response = getattr(error, "response", None)
                 if response is not None:
                     self._log.error(

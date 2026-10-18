@@ -36,5 +36,6 @@ jobs:
         run: >
           uv run pytest
           --cov=usgs_triplifier
+          --cov=../etl/code
           --cov-report=term-missing
           --cov-fail-under=80

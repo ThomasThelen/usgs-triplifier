@@ -7,3 +7,5 @@
 
 # Downloaded inputs and generated output
 usgs-triplifier/data
+usgs-triplifier/build
+usgs-triplifier/dist

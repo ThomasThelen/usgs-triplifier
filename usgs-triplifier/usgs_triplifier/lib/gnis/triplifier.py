@@ -7,7 +7,7 @@ from typing import Any, ClassVar
 from rdflib import Literal
 
 from ...config import Config
-from ...usgs_products import UsgsProduct
+from ...usgs_products import UsgsProduct, UsgsProducts
 from .rdf import NTriplesWriter, Terms
 from .text_source import TextSource
 
@@ -56,12 +56,17 @@ class Triplifier(ABC):
 
         :return: Number of triples written.
         :raises FileNotFoundError: If the input directory has no zip for the product.
-        :raises ValueError: If a row has no value for a required column.
+        :raises ValueError: If a row has no value for a required column, or
+            its feature id is not a number.
         """
-        source = TextSource(
-            self.config.input_directory,
-            self.product.pattern_for(self.config.legacy_dump),
-        )
+        legacy_dump = self.config.legacy_dump
+        zip_paths = self.product.zip_paths(self.config.input_directory, legacy_dump)
+        if not zip_paths:
+            raise FileNotFoundError(
+                f"No zip files matching {self.product.pattern_for(legacy_dump)} "
+                f"in {self.config.input_directory}"
+            )
+        source = TextSource(zip_paths, UsgsProducts.quoting_for(legacy_dump))
         fields = self.fields()
         with NTriplesWriter(self.config.output_directory / self.output_name) as writer:
             for row in source.rows():

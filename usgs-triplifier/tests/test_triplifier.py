@@ -4,7 +4,6 @@ from rdflib import BNode, Graph, Literal, URIRef
 from conftest import make_text_zip, parse_nt_gz
 from usgs_triplifier.lib.gnis.identifiers import FeatureIds
 from usgs_triplifier.lib.gnis.rdf import NTriplesWriter, Terms
-from usgs_triplifier.lib.gnis.text_source import TextSource
 from usgs_triplifier.lib.gnis.triplifier import FieldDescriptor, Triplifier
 from usgs_triplifier.usgs_products import UsgsProduct
 
@@ -55,6 +54,9 @@ def test_normalize_feature_id():
     assert FeatureIds.normalize("0123") == "123"
     assert FeatureIds.normalize("000") == "0"
     assert FeatureIds.normalize("") == "0"
+    assert FeatureIds.normalize(" 42 ") == "42"
+    with pytest.raises(ValueError):
+        FeatureIds.normalize("452 acres in size")
 
 
 def test_alias_part_replaces_non_word_characters():
@@ -145,9 +147,9 @@ def test_writer_counts_every_line_it_writes(tmp_path):
     assert len(parse_nt_gz(path)) == 1
 
 
-def test_text_source_without_zips_raises(tmp_path):
-    with pytest.raises(FileNotFoundError):
-        TextSource(tmp_path, "Nope_*_Text.zip")
+def test_triplifier_without_zips_raises(config):
+    with pytest.raises(FileNotFoundError, match="Test_\\*.zip"):
+        SampleTriplifier(config).run()
 
 
 def test_triplifier_end_to_end(data_dirs, config):

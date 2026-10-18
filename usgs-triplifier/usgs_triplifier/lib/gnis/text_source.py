@@ -9,8 +9,7 @@ from typing import ClassVar
 
 class TextSource:
     """
-    Reads the rows of the pipe-delimited text files inside the zips in a
-    directory whose names match a pattern.
+    Reads the rows of the pipe-delimited text files inside zips.
 
     Header names are stripped and lowercased, because legacy dumps use
     uppercase headers and the current products lowercase ones.
@@ -18,17 +17,16 @@ class TextSource:
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
-    def __init__(self, directory: Path, pattern: str) -> None:
+    def __init__(self, zip_paths: list[Path], quoting: int = csv.QUOTE_MINIMAL) -> None:
         """
-        Finds the zips to read.
+        Creates a source over zips.
 
-        :param directory: Directory holding the zips.
-        :param pattern: Glob matching the zip names.
-        :raises FileNotFoundError: If no zip matches the pattern.
+        :param zip_paths: The zips, read in this order.
+        :param quoting: csv quoting mode of the files. See
+            UsgsProducts.quoting_for.
         """
-        self.zip_paths = sorted(directory.glob(pattern))
-        if not self.zip_paths:
-            raise FileNotFoundError(f"No zip files matching {pattern} in {directory}")
+        self.zip_paths = zip_paths
+        self.quoting = quoting
 
     def rows(self) -> Iterator[dict[str, str]]:
         """
@@ -57,8 +55,6 @@ class TextSource:
             zf.open(name) as raw,
             io.TextIOWrapper(raw, encoding="utf-8-sig", newline="") as f,
         ):
-            reader = csv.DictReader(
-                f, delimiter="|", quoting=csv.QUOTE_NONE, restval=""
-            )
+            reader = csv.DictReader(f, delimiter="|", quoting=self.quoting, restval="")
             reader.fieldnames = [n.strip().lower() for n in reader.fieldnames or []]
             yield from reader

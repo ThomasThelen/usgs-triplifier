@@ -13,7 +13,7 @@ import requests
 from ..config import Config
 from ..output_files import OutputFiles
 from ..states import States
-from ..usgs_products import UsgsProducts
+from ..usgs_products import UsgsProduct, UsgsProducts
 from .crosswalk import Crosswalk
 from .gnis.identifiers import FeatureIds
 
@@ -436,31 +436,30 @@ class GeoNamesCrosswalk(Crosswalk):
             lon, limited to features with a name, a state and a non-zero latitude.
         """
         if self.config.legacy_dump:
-            gnis = self._read_gnis_text(
-                UsgsProducts.FEATURES.legacy_pattern, self.LEGACY_GNIS_COLUMNS
-            )
+            gnis = self._read_gnis_text(UsgsProducts.FEATURES, self.LEGACY_GNIS_COLUMNS)
         else:
-            gnis = self._read_gnis_text(
-                UsgsProducts.FEATURES.pattern, self.GNIS_COLUMNS
-            )
+            gnis = self._read_gnis_text(UsgsProducts.FEATURES, self.GNIS_COLUMNS)
             gnis["state"] = gnis["state_name"].map(States.CODES)
         gnis = gnis.dropna(subset=["name", "state", "lat", "lon"])
         return gnis[gnis["lat"].astype(float) != 0.0]
 
     def _read_gnis_text(
-        self, zip_pattern: str, columns: dict[str, str]
+        self, product: UsgsProduct, columns: dict[str, str]
     ) -> pd.DataFrame:
         """
-        Reads columns from every .txt file inside the zips in the input
-        directory that match a pattern.
+        Reads columns from every .txt file inside a product's zips in the
+        input directory.
 
-        :param zip_pattern: Glob matching the zip names.
+        :param product: The product to read.
         :param columns: Source column name -> name in the returned frame.
         :return: The columns as strings, renamed.
-        :raises ValueError: If no zip matches, or a column is missing.
+        :raises ValueError: If the product has no zip, or a column is missing.
         """
         frames = []
-        for zip_path in sorted(self.config.input_directory.glob(zip_pattern)):
+        zip_paths = product.zip_paths(
+            self.config.input_directory, self.config.legacy_dump
+        )
+        for zip_path in zip_paths:
             with zipfile.ZipFile(zip_path, "r") as zf:
                 for txt_name in (n for n in zf.namelist() if n.endswith(".txt")):
                     with zf.open(txt_name) as f:
@@ -470,7 +469,9 @@ class GeoNamesCrosswalk(Crosswalk):
                                 sep="|",
                                 dtype=str,
                                 encoding="utf-8-sig",
-                                quoting=3,
+                                quoting=UsgsProducts.quoting_for(
+                                    self.config.legacy_dump
+                                ),
                                 usecols=list(columns),
                             )
                         )
@@ -486,9 +487,11 @@ class GeoNamesCrosswalk(Crosswalk):
         :param gnis: One row per feature, with feature_id and key.
         :return: One row per (feature_id, key).
         """
-        pattern = UsgsProducts.NAMES.pattern_for(self.config.legacy_dump)
+        zip_paths = UsgsProducts.NAMES.zip_paths(
+            self.config.input_directory, self.config.legacy_dump
+        )
         frames = []
-        for zip_path in sorted(self.config.input_directory.glob(pattern)):
+        for zip_path in zip_paths:
             with zipfile.ZipFile(zip_path, "r") as zf:
                 for txt_name in (n for n in zf.namelist() if n.endswith(".txt")):
                     with zf.open(txt_name) as f:
@@ -497,7 +500,7 @@ class GeoNamesCrosswalk(Crosswalk):
                             sep="|",
                             dtype=str,
                             encoding="utf-8-sig",
-                            quoting=3,
+                            quoting=UsgsProducts.quoting_for(self.config.legacy_dump),
                             usecols=lambda c: (
                                 c.strip().lower() in ("feature_id", "feature_name")
                             ),
