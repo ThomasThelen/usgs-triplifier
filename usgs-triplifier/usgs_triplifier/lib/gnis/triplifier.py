@@ -40,12 +40,12 @@ class Triplifier(ABC):
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         """
         Creates the triplifier.
 
-        :param config: Settings: the input and output directories, the base
-            IRIs, and whether the input is a legacy dump.
+        :param config: Settings holding the input and output directories, the
+            base IRIs, and whether the input is a legacy dump.
         """
         self.config = config
         self.terms = Terms(config.prefix_list)
@@ -91,7 +91,7 @@ class Triplifier(ABC):
     @staticmethod
     def plain_literal(value: str, row: dict) -> Literal:
         """
-        Object for a FieldDescriptor that writes the value unchanged.
+        Builds a plain literal of a column value.
 
         :param value: Column value.
         :param row: Source row (unused).
@@ -102,7 +102,7 @@ class Triplifier(ABC):
     @staticmethod
     def english_literal(value: str, row: dict) -> Literal:
         """
-        Object for a FieldDescriptor that writes a name or other English text.
+        Builds an English literal of a column value.
 
         :param value: Column value.
         :param row: Source row (unused).

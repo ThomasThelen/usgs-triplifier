@@ -15,11 +15,12 @@ class ReleaseValidator:
     shapes/release-shapes.ttl before a release is exported.
 
     A release has tens of millions of triples, too many for pyshacl, which
-    holds the data in an rdflib Graph. So the first shacl_sample_subjects
-    subjects of each file are validated instead. Errors in the pipeline
-    affect every record they touch, so they show up in the sample.
-    Violations fail the check; warnings, used for known problems in the USGS
-    data such as unparseable dates, are logged only.
+    holds the data in an rdflib Graph. So only the first
+    shacl_sample_subjects IRI subjects of each file are validated. A mapping
+    error in a triplifier or crosswalk affects every record of its file,
+    including the validated ones. Violations fail the check. Warnings, used
+    for known problems in the USGS data such as unparseable dates, are only
+    logged.
     """
 
     SHAPES_PATH: ClassVar[Path] = (
@@ -31,11 +32,11 @@ class ReleaseValidator:
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         """
         Creates the validator.
 
-        :param config: Settings: the output directory, lod_base and
+        :param config: Settings holding the output directory, lod_base and
             shacl_sample_subjects.
         """
         self.config = config

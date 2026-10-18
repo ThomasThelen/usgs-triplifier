@@ -54,8 +54,8 @@ class NamesTriplifier(Triplifier):
         self, value: str, row: dict, writer: NTriplesWriter
     ) -> dict | None:
         """
-        Builds the name triples: rdfs:label and gnis:officialName for the
-        official name, gnis:alternativeName for any other.
+        Builds rdfs:label and gnis:officialName for the official name, or
+        gnis:alternativeName for any other name.
 
         :param value: The name.
         :param row: Source row.
@@ -74,10 +74,10 @@ class NamesTriplifier(Triplifier):
         Builds the gnis:citation of an official name.
 
         :param value: Citation text.
-        :param row: Source row; citations of other names are not written.
-        :return: The citation as an English literal. "gnis:UnknownCitation"
-            when USGS gives "Citation Unknown". Returns an empty string
-            for a name that is not official or a blank citation.
+        :param row: Source row.
+        :return: The citation as an English literal, "gnis:UnknownCitation"
+            when USGS gives "Citation Unknown", or an empty string for a name
+            that is not official or a blank citation.
         """
         if not self._is_official(row) or not value.strip():
             return ""
@@ -90,10 +90,10 @@ class NamesTriplifier(Triplifier):
         Builds the gnis:dateNameCreated of an official name.
 
         :param value: Date as MM/DD/YYYY.
-        :param row: Source row; dates of other names are not written.
-        :return: An xsd:date literal; the value as a plain literal when it is
-            not MM/DD/YYYY. Returns an empty string for a name that is
-            not official or a blank date.
+        :param row: Source row.
+        :return: An xsd:date literal, the value as a plain literal when it is
+            not MM/DD/YYYY, or an empty string for a name that is not
+            official or a blank date.
         """
         if not self._is_official(row) or not value.strip():
             return ""

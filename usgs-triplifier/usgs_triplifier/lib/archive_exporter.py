@@ -16,7 +16,7 @@ class ReleaseExporter:
     id, publication date, triple count and size.
     """
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         """
         Creates the exporter.
 
@@ -80,7 +80,7 @@ class ReleaseExporter:
 
     def _write_sidecar(self, path: Path, build_time: datetime, triples: int) -> None:
         """
-        Writes the .meta.json file the website reads for a release file.
+        Writes the .meta.json file of a release file.
 
         :param path: Release file the JSON describes.
         :param build_time: Time the release is dated with.
@@ -97,9 +97,8 @@ class ReleaseExporter:
     @staticmethod
     def format_size(n_bytes: int) -> str:
         """
-        Formats a file size the way the website does (format_size in
-        gnis-ld.org's lib/js/server.ts): decimal units, one decimal place for
-        MB and GB, at least 1 KB.
+        Formats a file size in decimal units, with one decimal place for MB
+        and GB and at least 1 KB.
 
         :param n_bytes: Size in bytes.
         :return: The size, e.g. "3.5 MB".

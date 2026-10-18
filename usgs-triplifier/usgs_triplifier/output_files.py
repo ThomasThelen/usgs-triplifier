@@ -41,8 +41,7 @@ class OutputFiles:
     @staticmethod
     def release_id(build_time: datetime) -> str:
         """
-        Builds the id of the release made at a build time. The id names the
-        release files and ends the release's URI.
+        Builds the id of the release dated with a build time.
 
         :param build_time: Time the release is dated with.
         :return: The date as YYMMDD, e.g. 260701.
@@ -72,8 +71,7 @@ class OutputFiles:
     @staticmethod
     def sidecar_for(release_path: Path) -> Path:
         """
-        Builds the path of the JSON file that describes a release file to the
-        website. Only the path is computed; the file may not exist.
+        Builds the path of the .meta.json file that describes a release file.
 
         :param release_path: Path of a release or historical release file.
         :return: The path with .nt.gz replaced by .meta.json.

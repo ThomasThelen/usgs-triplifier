@@ -6,13 +6,14 @@ class States:
     Two-letter codes and full names of the US states and territories,
     spelled as USGS writes them in the state_name column of its GNIS products.
 
-    Legacy dumps give a feature's state as the code, while the current
-    products give the full name; GeoNames  onlygives the code. Feature-alias and
-    gnis:state URIs are built from the full name, so both directions of the
-    lookup must use these exact spellings.
+    Legacy dumps and GeoNames give a feature's state as the code, while the
+    current products give the full name. Feature-alias and gnis:state IRIs
+    are built from the full name, so both directions of the lookup must use
+    these exact spellings.
     """
 
-    # Code -> name, mapping the STATE rows of GovernmentUnits_National_Text.
+    # Code -> name, spelled as in the STATE rows of
+    # GovernmentUnits_National_Text
     NAMES: ClassVar[dict[str, str]] = {
         "AL": "Alabama",
         "AK": "Alaska",
@@ -84,7 +85,7 @@ class States:
         """
         Looks up the full name of a state or territory.
 
-        :param code: Two-letter state code,.
+        :param code: Two-letter state code.
         :return: The name as USGS spells it or None for an unknown code.
         """
         return cls.NAMES.get(code)

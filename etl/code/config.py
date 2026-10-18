@@ -5,7 +5,7 @@ from usgs_triplifier.config import Config
 
 class EtlConfig(Config):
     """
-    Settings for the ETL pipeline
+    Settings for the ETL pipeline.
     """
 
     graphdb_url: str = Field(default="http://localhost:7200", alias="GRAPHDB_URL")

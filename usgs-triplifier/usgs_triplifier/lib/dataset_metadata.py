@@ -17,12 +17,12 @@ class DatasetMetadataWriter:
     releases, to the output directory.
     """
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         """
         Creates the writer.
 
-        :param config: Settings: lod_base, site_base, the output and archive
-            output directories, and whether the input is a legacy dump.
+        :param config: Settings holding lod_base, site_base, the output and
+            archive output directories, and whether the input is a legacy dump.
         """
         self.config = config
 
@@ -36,8 +36,8 @@ class DatasetMetadataWriter:
         Writes the description of the dataset and its releases.
 
         :param build_time: Time the release being built is dated with.
-        :param release_path: The release file, described as a download from
-            the website's /archive, or None when it has not been exported.
+        :param release_path: The release file, described as a download, or
+            None when it has not been exported.
         :param historical_path: The historical release file, described the
             same way, or None when there is none.
         :return: Path of dataset-metadata.ttl.

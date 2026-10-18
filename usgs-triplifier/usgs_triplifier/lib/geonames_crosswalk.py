@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import ClassVar
 
 import numpy as np
+from numpy.typing import ArrayLike
 import pandas as pd
 import requests
 
@@ -24,9 +25,9 @@ class GeoNamesMatcher:
     A GNIS feature and a GeoNames record are candidates when they share a
     normalized name (any of their names) and a state, their feature classes
     are compatible, and they are no farther apart than the class's distance
-    limit. Each feature keeps at most one candidate and each record at most
-    one feature; a feature whose best candidate is not clearly better than
-    the next is left unpaired.
+    limit. Each feature is paired with at most one record and each record
+    with at most one feature. A feature whose best candidate fails the
+    ambiguity checks in _resolve is left unpaired.
     """
 
     # Word expansions applied when normalizing names, because the two
@@ -110,7 +111,7 @@ class GeoNamesMatcher:
     }
 
     # GNIS classes paired within geonames_point_max_distance_m instead of
-    # geonames_max_distance_m, because the two gazetteers place them at 
+    # geonames_max_distance_m, because the two gazetteers place them at
     # nearly the same coordinates
     POINT_CLASSES: ClassVar[frozenset[str]] = frozenset(
         {
@@ -135,7 +136,7 @@ class GeoNamesMatcher:
     # Mean Earth radius used for distances
     EARTH_RADIUS_M: ClassVar[int] = 6_371_000
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         """
         Creates the matcher.
 
@@ -166,8 +167,8 @@ class GeoNamesMatcher:
             pairs["lon_geonames"],
         )
         pairs = pairs[pairs["distance"] <= self._max_distance(pairs["class_key"])]
-        # One row per (feature, record): the closest distance between them,
-        # and how many normalized names they share
+        # Reduce to one row per (feature, record) with the closest distance
+        # between them and the number of normalized names they share
         pairs = pairs.groupby(["feature_id", "geonameid"], as_index=False).agg(
             distance=("distance", "min"), shared=("key", "size")
         )
@@ -175,9 +176,9 @@ class GeoNamesMatcher:
 
     def normalize_names(self, names: pd.Series) -> pd.Series:
         """
-        Converts names to the form used to pair them: accents removed,
-        lowercase, apostrophes and periods removed, words separated by single
-        spaces, and NAME_ABBREVIATIONS expanded.
+        Converts names to the form used to pair them, with accents,
+        apostrophes and periods removed, letters lowercased, words separated
+        by single spaces, and NAME_ABBREVIATIONS expanded.
 
         :param names: Names.
         :return: The normalized names; missing names stay missing.
@@ -304,7 +305,9 @@ class GeoNamesMatcher:
         return best[best.index.isin(top_per_record.index)]
 
     @classmethod
-    def _haversine_m(cls, lat1, lon1, lat2, lon2) -> np.ndarray:
+    def _haversine_m(
+        cls, lat1: ArrayLike, lon1: ArrayLike, lat2: ArrayLike, lon2: ArrayLike
+    ) -> np.ndarray:
         """
         Computes great-circle distances on a sphere of EARTH_RADIUS_M.
 
@@ -329,17 +332,17 @@ class GeoNamesCrosswalk(Crosswalk):
     Links GNIS features to the GeoNames records GeoNamesMatcher pairs them
     with, as owl:sameAs.
 
-    Reads the features from the GNIS features file  and their variant names 
+    Reads the features from the GNIS features file and their variant names
     from AllNames, and the records from the GeoNames US export, which is
-    downloaded into the input directory when missing. When 
-    wikidata-geonames.csv exists, the links are also compared
-    with the GeoNames ids Wikidata records for the same features.
+    downloaded into the input directory when missing. When
+    wikidata-geonames.csv exists, the links are also compared with the
+    GeoNames ids Wikidata records for the same features.
     """
 
     output_name: ClassVar[str] = OutputFiles.GEONAMES_CROSSWALK
 
     # GeoNames US export, in the input directory
-    US_DUMP_NAME: ClassVar[str] = "US.zip"
+    US_EXPORT_NAME: ClassVar[str] = "US.zip"
 
     # Columns read from the GNIS features file. Legacy dumps use uppercase
     # names and give the state as a code (STATE_ALPHA).
@@ -362,12 +365,12 @@ class GeoNamesCrosswalk(Crosswalk):
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         """
         Creates the crosswalk.
 
-        :param config: Settings: input and output directories, the GeoNames
-            URL, and the matching limits.
+        :param config: Settings holding the input and output directories, the
+            GeoNames URL, and the matching limits.
         """
         super().__init__(config)
         self.matcher = GeoNamesMatcher(config)
@@ -379,8 +382,8 @@ class GeoNamesCrosswalk(Crosswalk):
         :return: Path of the written file, or None when the GeoNames export
             could not be downloaded.
         """
-        dump_path = self._fetch_dump()
-        if dump_path is None:
+        export_path = self._fetch_export()
+        if export_path is None:
             return None
 
         gnis = self._load_gnis()
@@ -388,7 +391,7 @@ class GeoNamesCrosswalk(Crosswalk):
         gnis["class_key"] = gnis["feature_class"].fillna("").str.replace(" ", "")
         gnis["key"] = self.matcher.normalize_names(gnis["name"])
         gnis = self._with_variant_names(gnis)
-        geonames = self.matcher.explode_names(self._load_geonames(dump_path))
+        geonames = self.matcher.explode_names(self._load_geonames(export_path))
 
         matches = self.matcher.match(gnis, geonames)
         self.write_lines(
@@ -399,21 +402,21 @@ class GeoNamesCrosswalk(Crosswalk):
         self._compare_with_wikidata(matches)
         return self.output_path
 
-    def _fetch_dump(self) -> Path | None:
+    def _fetch_export(self) -> Path | None:
         """
         Finds the GeoNames US export in the input directory, downloading it
         from geonames_url when missing.
 
         :return: Path of the export, or None when the download failed.
         """
-        dump_path = self.config.input_directory / self.US_DUMP_NAME
-        if dump_path.exists():
-            return dump_path
+        export_path = self.config.input_directory / self.US_EXPORT_NAME
+        if export_path.exists():
+            return export_path
         try:
             response = requests.get(self.config.geonames_url, stream=True, timeout=300)
             response.raise_for_status()
             self.config.input_directory.mkdir(parents=True, exist_ok=True)
-            with open(dump_path, "wb") as f:
+            with open(export_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=1 << 20):
                     f.write(chunk)
         except requests.RequestException as error:
@@ -421,7 +424,7 @@ class GeoNamesCrosswalk(Crosswalk):
                 f"GeoNames export unavailable; writing no GeoNames links: {error}"
             )
             return None
-        return dump_path
+        return export_path
 
     def _load_gnis(self) -> pd.DataFrame:
         """
@@ -453,7 +456,6 @@ class GeoNamesCrosswalk(Crosswalk):
 
         :param zip_pattern: Glob matching the zip names.
         :param columns: Source column name -> name in the returned frame.
-            A missing source column raises ValueError.
         :return: The columns as strings, renamed.
         :raises ValueError: If no zip matches, or a column is missing.
         """
@@ -479,7 +481,7 @@ class GeoNamesCrosswalk(Crosswalk):
         Adds a row for every variant name of each feature, read from the
         AllNames zip in the input directory, so features are also paired by
         their variant names. Without an AllNames zip, only the features' own
-        names are used and an info message is logged.
+        names are used.
 
         :param gnis: One row per feature, with feature_id and key.
         :return: One row per (feature_id, key).
@@ -516,16 +518,16 @@ class GeoNamesCrosswalk(Crosswalk):
         combined = pd.concat([gnis, extra], ignore_index=True)
         return combined.drop_duplicates(["feature_id", "key"])
 
-    def _load_geonames(self, dump_path: Path) -> pd.DataFrame:
+    def _load_geonames(self, export_path: Path) -> pd.DataFrame:
         """
         Reads the records of the GeoNames US export.
 
-        :param dump_path: Path of US.zip.
+        :param export_path: Path of US.zip.
         :return: geonameid, name, alternatenames, lat, lon, gn_class and
             state (the admin1 code), limited to records with a name, a state
             and coordinates.
         """
-        with zipfile.ZipFile(dump_path, "r") as zf:
+        with zipfile.ZipFile(export_path, "r") as zf:
             with zf.open("US.txt") as f:
                 geonames = pd.read_csv(
                     f,
@@ -557,8 +559,8 @@ class GeoNamesCrosswalk(Crosswalk):
 
     def _wikidata_pairs(self) -> dict[str, set[str]]:
         """
-        Reads the GeoNames ids Wikidata records for GNIS features, from the
-        wikidata-geonames.csv the Wikidata crosswalk writes.
+        Reads the GeoNames ids Wikidata records for GNIS features from
+        wikidata-geonames.csv in the output directory.
 
         :return: GeoNames ids per feature id; empty when the file does not exist.
         """

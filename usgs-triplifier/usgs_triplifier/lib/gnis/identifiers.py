@@ -23,8 +23,8 @@ class FeatureIds:
     @staticmethod
     def alias_part(text: str) -> str:
         """
-        Converts a name to the IRI form used in gnisf-alias. For example,
-        mapping "San Juan Co." to "San_Juan_Co_".
+        Converts a name to the form used in gnisf-alias IRIs, e.g.
+        "San Juan Co." to "San_Juan_Co_".
 
         :param text: A state, county, country or feature name.
         :return: The name with every non-word character replaced by an underscore.

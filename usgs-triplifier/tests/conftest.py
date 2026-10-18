@@ -89,14 +89,17 @@ def make_gpkg_zip(
     return zip_path
 
 
-def make_text_zip(input_dir, zip_name, txt_name, lines):
+def make_text_zip(
+    input_dir: Path, zip_name: str, txt_name: str, lines: list[str]
+) -> Path:
     """
-    Build a zip containing one pipe-delimited text file in ``input_dir``.
+    Builds a zip containing one pipe-delimited text file in input_dir.
 
     :param input_dir: Directory the triplifiers read zips from.
     :param zip_name: Name of the zip file (must match the triplifier's glob).
     :param txt_name: Name of the text file inside the zip.
     :param lines: Text lines (header first) to join with newlines.
+    :return: Path to the zip file.
     """
     zip_path = input_dir / zip_name
     with zipfile.ZipFile(zip_path, "w") as zf:

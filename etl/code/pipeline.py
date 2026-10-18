@@ -35,11 +35,6 @@ class PipelineError(Exception):
 class Pipeline:
     """
     Builds a GNIS-LD release and publishes it.
-
-    run() downloads the USGS products, converts them to RDF,
-    adds the crosswalk links, removes duplicate triples,
-    validates a sample, exports the release files to the archive output
-    directory and loads the output into GraphDB.
     """
 
     TRIPLIFIERS: ClassVar[tuple[type, ...]] = (
@@ -57,7 +52,7 @@ class Pipeline:
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
-    def __init__(self, config: EtlConfig):
+    def __init__(self, config: EtlConfig) -> None:
         """
         Creates the pipeline.
 
@@ -116,11 +111,11 @@ class Pipeline:
 
     def triplify(self) -> None:
         """
-        Converts the USGS products to RDF in the output directory, after
-        deleting the .nt.gz and .ttl files of a previous run: every later step
-        reads all such files in the output directory, so leftovers would end
-        up in this release. The multipoint geometries are only written for the
-        current products, because legacy dumps have no GeoPackage.
+        Deletes the .nt.gz and .ttl files of a previous run from the output
+        directory, then converts the USGS products to RDF there. A leftover
+        file would otherwise be included in this release. The multipoint
+        geometries are only written for the current products, because legacy
+        dumps have no GeoPackage.
         """
         for pattern in ("*.ttl", "*.nt.gz"):
             for stale in self.config.output_directory.glob(pattern):
@@ -132,16 +127,15 @@ class Pipeline:
 
     def add_crosswalks(self) -> None:
         """
-        Writes the crosswalk links. A crosswalk whose source cannot be reached
-        writes nothing, and the release is built without its links.
+        Writes the links of every crosswalk.
         """
         for crosswalk in self.CROSSWALKS:
             crosswalk(self.config).build()
 
     def build_time(self) -> datetime:
         """
-        Picks the time the release is dated with: the legacy dump's date,
-        otherwise RELEASE_DATE, otherwise now.
+        Picks the time the release is dated with. This is LEGACY_DUMP_DATE
+        when set, otherwise RELEASE_DATE, otherwise the current time.
 
         :return: The time, in UTC.
         """

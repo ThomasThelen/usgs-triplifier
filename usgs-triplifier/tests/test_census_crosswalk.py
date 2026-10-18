@@ -56,7 +56,7 @@ def test_ansi_codes_join_to_geoids(data_dirs, monkeypatch, config):
     with gzip.open(path, "rt", encoding="utf-8") as f:
         lines = f.read().splitlines()
     prop = f"<{config.lod_base}/gnis/ontology/censusGeoid>"
-    # leading zeros: stripped from the GNIS id, preserved in the GEOID
+    # Leading zeros are stripped from the GNIS id and kept in the GEOID
     assert f'<{config.lod_base}/gnis/feature/1419988> {prop} "02068" .' in lines
     assert f'<{config.lod_base}/gnis/feature/428803> {prop} "1772000" .' in lines
     # the GEOID doubles as the Data Commons key

@@ -5,8 +5,11 @@ from usgs_triplifier.usgs_products import UsgsProducts
 class FakeS3:
     """Records download_file calls instead of contacting S3."""
 
-    def __init__(self):
-        self.calls = []
+    def __init__(self) -> None:
+        """
+        Creates the fake with no recorded calls.
+        """
+        self.calls: list[tuple[str, str, str]] = []
 
     def download_file(self, bucket: str, key: str, path: str) -> None:
         """

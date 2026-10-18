@@ -30,8 +30,8 @@ class Config(BaseSettings):
         default=DATA_DIR / "output" / "gnis", alias="RDF_OUTPUT_DIRECTORY"
     )
 
-    # Directory the release dump (gnis-ld-<yymmdd>.nt.gz + .meta.json sidecar)
-    # is exported to; the website serves this directory at /archive
+    # Directory the release files (gnis-ld-<yymmdd>.nt.gz and its .meta.json)
+    # are exported to
     archive_output_directory: Path = Field(
         default=DATA_DIR / "archive", alias="ARCHIVE_OUTPUT_DIRECTORY"
     )
@@ -49,12 +49,12 @@ class Config(BaseSettings):
     # Ignored when legacy_dump_date is set.
     release_date: str | None = Field(default=None, alias="RELEASE_DATE")
 
-    # SPARQL endpoint the crosswalk links are harvested from (P590 backlinks)
+    # SPARQL endpoint the Wikidata crosswalk queries for items with a GNIS id (P590)
     wikidata_endpoint: str = Field(
         default="https://query.wikidata.org/sparql", alias="WIKIDATA_ENDPOINT"
     )
 
-    # GeoNames US dump for the name-and-distance alignment
+    # GeoNames US export that GNIS features are paired with by name and distance
     geonames_url: str = Field(
         default="https://download.geonames.org/export/dump/US.zip",
         alias="GEONAMES_URL",
@@ -73,9 +73,9 @@ class Config(BaseSettings):
         default=5_000, alias="GEONAMES_POINT_MAX_DISTANCE_M"
     )
 
-    # A winning candidate must be unambiguous: the runner-up must be this
-    # many times farther away, or trail by the minimum gap below, or the
-    # feature is left unlinked
+    # A feature is left unpaired when its second-best candidate shares as
+    # many names as the best one, is less than this many times as far away,
+    # and is less than the gap below farther away
     geonames_ambiguity_ratio: float = Field(
         default=2.0, alias="GEONAMES_AMBIGUITY_RATIO"
     )
@@ -83,7 +83,8 @@ class Config(BaseSettings):
         default=2_000, alias="GEONAMES_AMBIGUITY_MIN_GAP_M"
     )
 
-    # Distinct subjects sampled per generated dump for the SHACL gate
+    # Number of IRI subjects at the start of each generated file that are
+    # validated against the SHACL shapes
     shacl_sample_subjects: int = Field(default=2_000, alias="SHACL_SAMPLE_SUBJECTS")
 
     # Census national gazetteer files (the ANSI code column is the GNIS id)
@@ -118,6 +119,12 @@ class Config(BaseSettings):
     @computed_field
     @property
     def prefix_list(self) -> dict[str, Namespace]:
+        """
+        Maps each prefix of the term notation to its namespace.
+
+        :return: Prefix -> namespace, including the namespaces built from
+            lod_base and geo_base.
+        """
         return {
             **self._static_prefixes,
             "usgs": Namespace(f"{self.lod_base}/usgs/ontology/"),

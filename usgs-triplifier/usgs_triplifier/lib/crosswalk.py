@@ -1,6 +1,7 @@
 import gzip
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from pathlib import Path
 from typing import ClassVar
 
@@ -13,10 +14,9 @@ class Crosswalk(ABC):
     Links GNIS features to records in another dataset and writes the links
     to a gzipped N-Triples file in the output directory.
 
-    The links are written as N-Triples lines directly, not through rdflib,
-    because they are built from strings in large batches. A crosswalk whose
-    source cannot be reached writes no file and returns None, so the release
-    is built without that crosswalk's links instead of failing.
+    The links are written as N-Triples lines without rdflib, because they
+    are built from strings in large batches. A crosswalk whose source cannot
+    be reached writes no file.
     """
 
     OWL_SAMEAS: ClassVar[str] = "<http://www.w3.org/2002/07/owl#sameAs>"
@@ -27,12 +27,12 @@ class Crosswalk(ABC):
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         """
         Creates the crosswalk.
 
-        :param config: Settings: the output directory, the base IRI of the
-            features, and the crosswalk's own source settings.
+        :param config: Settings holding the output directory, the base IRI of
+            the features, and the crosswalk's source settings.
         """
         self.config = config
 
@@ -65,7 +65,7 @@ class Crosswalk(ABC):
             f"<{self.config.lod_base}/gnis/feature/{FeatureIds.normalize(feature_id)}>"
         )
 
-    def write_lines(self, lines) -> int:
+    def write_lines(self, lines: Iterable[str]) -> int:
         """
         Writes N-Triples lines to the output file, replacing any existing file.
 

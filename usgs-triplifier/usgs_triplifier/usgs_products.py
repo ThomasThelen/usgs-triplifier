@@ -5,7 +5,14 @@ from typing import ClassVar
 @dataclass(frozen=True)
 class UsgsProduct:
     """
-    Represents a single USGS product (data artifact)
+    A USGS GNIS file the pipeline reads.
+
+    :param key: S3 key of the current file in the USGS bucket.
+    :param pattern: Glob matching the current file in the input directory.
+    :param legacy_key: S3 key of the legacy dump file, or None when legacy
+        dumps have no such file.
+    :param legacy_pattern: Glob matching the legacy dump file in the input
+        directory, or None when legacy dumps have no such file.
     """
 
     key: str
@@ -15,12 +22,12 @@ class UsgsProduct:
 
     def pattern_for(self, legacy_dump: bool) -> str:
         """
-        Returns the glob that matches the dataset's zip in the input directory.
+        Returns the glob that matches the product's zip in the input directory.
 
         :param legacy_dump: Whether the input directory holds a legacy dump.
         :return: The legacy pattern for a legacy dump, otherwise the current one.
-        :raises ValueError: If a legacy dump is requested for a dataset that
-            legacy dumps do not include.
+        :raises ValueError: If legacy_dump is True and legacy dumps have no
+            such product.
         """
         if not legacy_dump:
             return self.pattern

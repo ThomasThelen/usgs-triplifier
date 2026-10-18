@@ -3,7 +3,7 @@ import logging
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, TextIO
 
 import requests
 
@@ -17,7 +17,7 @@ class WikidataCrosswalk(Crosswalk):
     Links GNIS features to Wikidata and the datasets Wikidata links them to.
 
     Wikidata items record their GNIS feature id in property P590. For every
-    such item the crosswalk writes:
+    such item the crosswalk writes these links.
 
         - owl:sameAs the Wikidata item
         - owl:sameAs the DBpedia resource of the item's English Wikipedia article
@@ -25,10 +25,7 @@ class WikidataCrosswalk(Crosswalk):
         - skos:closeMatch the Library of Congress authority (P244)
         - skos:closeMatch the Getty Thesaurus of Geographic Names place (P1667)
 
-    The items' GeoNames ids (P1566) are not written as links, because the
-    GeoNames crosswalk links GeoNames itself. They are written to
-    wikidata-geonames.csv instead, which the GeoNames crosswalk compares its
-    links against.
+    The items' GeoNames ids (P1566) are written to wikidata-geonames.csv.
     """
 
     output_name: ClassVar[str] = OutputFiles.WIKIDATA_CROSSWALK
@@ -86,15 +83,15 @@ class WikidataCrosswalk(Crosswalk):
                     timeout=300,
                 )
                 response.raise_for_status()
-                # strict=False: some returned values contain raw control
-                # characters, which strict JSON parsing rejects
+                # Some returned values contain raw control characters, which
+                # json.loads rejects unless strict is False
                 return json.loads(response.text, strict=False)["results"]["bindings"]
             except (requests.RequestException, ValueError, KeyError) as error:
                 self._log.warning(f"Wikidata query attempt {attempt} failed: {error}")
                 time.sleep(self.RETRY_WAIT_S * attempt)
         return None
 
-    def _links(self, bindings: list[dict], pairs) -> Iterator[str]:
+    def _links(self, bindings: list[dict], pairs: TextIO) -> Iterator[str]:
         """
         Yields the link lines for the query results and writes each GeoNames
         pair to the pairs file. Results whose GNIS id is not a number are skipped.

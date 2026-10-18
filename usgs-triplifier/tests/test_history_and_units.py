@@ -66,7 +66,8 @@ def test_units_end_to_end(data_dirs, config):
     ]
     assert (gnisf_alias["California"], OWL.sameAs, gnisf["10"]) in graph
 
-    # COUNTY row: zero-padded code, state alias link, no state code/id
+    # A COUNTY row gets a zero-padded code and a state alias link, and no
+    # state code or id
     assert (gnisf["20"], RDF.type, gnis["County"]) in graph
     assert list(graph.objects(gnisf["20"], gnis["countyCode"])) == [Literal("001")]
     assert list(graph.objects(gnisf["20"], gnis["countyName"])) == [

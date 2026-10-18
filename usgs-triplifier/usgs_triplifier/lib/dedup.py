@@ -13,18 +13,15 @@ class Deduplicator:
     """
     Removes repeated triples from the generated N-Triples files.
 
-    The triplifiers and crosswalks write each triple as soon as it is
-    produced, so the same triple can be written more than once, within a
-    file or by two different files (e.g. the same alias from two datasets).
-    Each file is rewritten keeping only the first occurrence of every line
-    across all of them, in file name order. retained-features.nt.gz is left
-    as it is, because its lines are copied from release files that were
-    already deduplicated.
+    The same triple can be written more than once, within a file or by two
+    files. Each file is rewritten keeping only the first occurrence of every
+    line across all of them, in file name order. retained-features.nt.gz is
+    not rewritten.
     """
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         """
         Creates the deduplicator.
 
@@ -38,8 +35,8 @@ class Deduplicator:
 
         :return: Number of lines removed across all files.
         """
-        # 16-byte digests rather than the lines themselves: a full run has
-        # tens of millions of lines
+        # Holds 16-byte digests of the lines instead of the lines, because a
+        # full run has tens of millions of lines
         seen: set[int] = set()
         removed = 0
         for path in sorted(self.config.output_directory.glob("*.nt.gz")):

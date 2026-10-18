@@ -18,7 +18,7 @@ class TextSource:
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
-    def __init__(self, directory: Path, pattern: str):
+    def __init__(self, directory: Path, pattern: str) -> None:
         """
         Finds the zips to read.
 

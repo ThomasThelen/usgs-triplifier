@@ -15,9 +15,9 @@ class UnitsTriplifier(Triplifier):
     """
     Converts the GNIS government units (GovernmentUnits) into units.nt.gz.
 
-    Only COUNTY and STATE rows are written. Each gets owl:sameAs from its
-    gnisf-alias: IRI (the state, or state.county), which is how features'
-    gnis:state and gnis:county links reach the unit.
+    Only COUNTY and STATE rows are written. Each unit's gnisf-alias: IRI
+    (state, or state.county) is written owl:sameAs its gnisf: IRI. Features'
+    gnis:state and gnis:county triples have the alias IRI as their object.
     """
 
     product: ClassVar[UsgsProduct] = UsgsProducts.UNITS
@@ -114,8 +114,8 @@ class UnitsTriplifier(Triplifier):
         self, value: str, row: dict, writer: NTriplesWriter
     ) -> dict | None:
         """
-        Builds the state triple: a COUNTY gets gnis:state linking to its
-        state's alias; a STATE gets its name as gnis:stateName.
+        Builds gnis:state linking a COUNTY to its state's alias, or
+        gnis:stateName with the name of a STATE.
 
         :param value: Full state name.
         :param row: Source row; unit_type selects the triple.

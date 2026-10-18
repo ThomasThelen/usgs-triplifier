@@ -16,12 +16,12 @@ class GraphDBAdapter:
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
-    def __init__(self, config: EtlConfig):
+    def __init__(self, config: EtlConfig) -> None:
         """
         Creates the adapter.
 
-        :param config: Settings: the GraphDB URL, import directory, credentials
-            and repository, and the output directory holding the RDF files.
+        :param config: Settings holding the GraphDB URL, import directory,
+            credentials and repository, and the output directory of the RDF files.
         """
         self.config = config
         self.base_url = config.graphdb_url.rstrip("/")

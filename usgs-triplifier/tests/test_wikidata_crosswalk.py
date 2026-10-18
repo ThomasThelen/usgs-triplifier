@@ -69,7 +69,7 @@ def test_harvest_writes_ntriples_links(data_dirs, monkeypatch, config):
         f"{feature} <http://www.w3.org/2002/07/owl#sameAs> <http://dbpedia.org/resource/Denali> ."
         in lines
     )
-    # GeoNames pairs are QA reference only — never emitted as triples
+    # GeoNames ids are written to the pairs file and not as triples
     assert not any("sws.geonames.org" in line for line in lines)
     reference = (
         (output_dir / OutputFiles.WIKIDATA_GEONAMES_PAIRS).read_text().splitlines()

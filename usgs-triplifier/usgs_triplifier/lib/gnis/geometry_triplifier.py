@@ -28,11 +28,12 @@ class GeometryTriplifier:
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         """
         Creates the triplifier.
 
-        :param config: Settings: the input and output directories and the base IRIs.
+        :param config: Settings holding the input and output directories and
+            the base IRIs.
         """
         self.config = config
 
@@ -94,7 +95,8 @@ class GeometryTriplifier:
 
     def _add_geometry(self, writer: NTriplesWriter, feature_id: str, wkt: str) -> None:
         """
-        Links a feature to its multipoint node and attaches the WKT literal.
+        Writes the feature's geosparql:hasGeometry triple and its multipoint's
+        geosparql:asWKT triple.
 
         :param writer: Writer the triples are added to.
         :param feature_id: Canonical feature id, as used in gnisf: IRIs.

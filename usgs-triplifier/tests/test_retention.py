@@ -16,8 +16,8 @@ LABEL = "<http://www.w3.org/2000/01/rdf-schema#label>"
 HISTORICAL = f"<{LOD}/usgs/ontology/HistoricalFeature>"
 LAST_APPEARED = f"<{LOD}/gnis/ontology/lastAppearedIn>"
 
-# Feature 1 is dropped upstream: a full record with a geometry (a dependent
-# URI subject) and an elevation blank node (needs closure chasing).
+# Feature 1 is dropped upstream. Its record has a geometry, which is an IRI
+# subject of its own, and an elevation blank node.
 DROPPED_RECORD = [
     f'<{LOD}/gnis/feature/1> {LABEL} "Blue Lake" .',
     f"<{LOD}/gnis/feature/1> <http://www.opengis.net/ont/geosparql#hasGeometry> <{GEO}/point/gnisf.1> .",
@@ -63,7 +63,7 @@ def test_dropped_record_is_carried_with_closure_and_tombstone(
     assert RetentionBuilder(config).build(BUILD_TIME) is not None
     lines = _retained_lines(config)
 
-    # The whole record survives: feature, geometry subject, blank node
+    # The feature, geometry and blank node lines are all retained
     for line in DROPPED_RECORD:
         assert line in lines
     # Still-current features are not carried

@@ -28,7 +28,7 @@ def test_duplicates_removed_within_and_across_files(data_dirs, config):
 
     assert removed == 2
     assert _read(output_dir / "features.nt.gz") == [LINE_A, LINE_B]
-    # First occurrence wins: the copy in the later file is dropped
+    # The first occurrence is kept and the copy in the later file is dropped
     assert _read(output_dir / "names.nt.gz") == [LINE_C]
 
 

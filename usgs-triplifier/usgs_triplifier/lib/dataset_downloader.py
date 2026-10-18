@@ -4,6 +4,7 @@ from typing import ClassVar
 
 import boto3
 from botocore import UNSIGNED
+from botocore.client import BaseClient
 from botocore.config import Config as BotoConfig
 
 from ..usgs_products import UsgsProducts
@@ -16,7 +17,7 @@ class DatasetDownloader:
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
-    def __init__(self, download_dir: Path, s3=None):
+    def __init__(self, download_dir: Path, s3: BaseClient | None = None) -> None:
         """
         Creates a downloader.
 

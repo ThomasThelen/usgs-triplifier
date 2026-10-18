@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from typing import Any, ClassVar
 
-from rdflib import BNode, Literal, Namespace, URIRef
+from rdflib import BNode, Graph, Literal, Namespace, URIRef
 from rdflib.namespace import GEO
 from rdflib.plugins.serializers.nt import _nt_row
 
@@ -13,7 +13,7 @@ class NTriplesWriter:
     Writes triples to a gzipped N-Triples file. It works as a context manager over the file.
     """
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path) -> None:
         """
         Creates a writer for a file.
 
@@ -34,7 +34,7 @@ class NTriplesWriter:
         self._out = gzip.open(self.path, "wt", encoding="utf-8")
         return self
 
-    def __exit__(self, *exc_info) -> None:
+    def __exit__(self, *exc_info: object) -> None:
         """
         Closes the file.
 
@@ -66,7 +66,7 @@ class Terms:
     Converts the term notation used in field mappings into rdflib terms and
     writes them to a writer.
 
-    The notation is a string whose first character selects the term type:
+    The notation is a string whose first character selects the term type.
 
         - ``>http://...``     an IRI given in full
         - ``"text``           a plain literal
@@ -82,7 +82,7 @@ class Terms:
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
-    def __init__(self, prefixes: dict[str, Namespace]):
+    def __init__(self, prefixes: dict[str, Namespace]) -> None:
         """
         Creates a converter for a set of prefixes.
 
@@ -128,14 +128,20 @@ class Terms:
             return self.resolve_iri(text)
         return Literal(text)
 
-    def add_object(self, writer, subject, predicate: URIRef, obj: Any) -> None:
+    def add_object(
+        self,
+        writer: NTriplesWriter | Graph,
+        subject: URIRef | BNode,
+        predicate: URIRef,
+        obj: Any,
+    ) -> None:
         """
         Writes the triple(s) for one object of a subject and predicate.
 
         An rdflib term is written as given and a string is parsed with
-        parse_object. A dict becomes a blank node: the subject is linked to it,
-        and the dict's predicate-object pairs are written with the blank node
-        as their subject. Any other type is logged and skipped.
+        parse_object. A dict becomes a blank node that is the object of the
+        triple and the subject of the dict's predicate-object pairs. Any other
+        type is logged and skipped.
 
         :param writer: Writer (or rdflib Graph) the triples are added to.
         :param subject: Subject term.
@@ -153,7 +159,9 @@ class Terms:
         else:
             self._log.warning(f"Skipping unsupported object type {type(obj)!r}: {obj}")
 
-    def add_pairs(self, writer, subject, pairs: dict) -> None:
+    def add_pairs(
+        self, writer: NTriplesWriter | Graph, subject: URIRef | BNode, pairs: dict
+    ) -> None:
         """
         Writes the triples for a mapping of predicates to objects.
 

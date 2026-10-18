@@ -56,7 +56,7 @@ def _gnis_zip(input_dir: Path, rows: list[dict[str, str | float]]) -> Path:
 
 
 def _geonames_row(gid, name, lat, lon, state, gn_class="", alternates=""):
-    # geonames main format: 19 tab-separated columns
+    # A row of the GeoNames main format has 19 tab-separated columns
     cols = [""] * 19
     cols[0], cols[1], cols[3], cols[4], cols[5], cols[6], cols[10] = (
         str(gid),
@@ -71,7 +71,7 @@ def _geonames_row(gid, name, lat, lon, state, gn_class="", alternates=""):
 
 
 def _write_us_zip(input_dir, rows):
-    with zipfile.ZipFile(input_dir / GeoNamesCrosswalk.US_DUMP_NAME, "w") as zf:
+    with zipfile.ZipFile(input_dir / GeoNamesCrosswalk.US_EXPORT_NAME, "w") as zf:
         zf.writestr("US.txt", "\n".join(rows) + "\n")
 
 
@@ -103,8 +103,8 @@ def test_nearest_same_named_candidate_within_threshold_wins(data_dirs, config):
     assert path == output_dir / OutputFiles.GEONAMES_CROSSWALK
     with gzip.open(path, "rt", encoding="utf-8") as f:
         lines = f.read().splitlines()
-    # nearest candidate wins, one link per feature — including features that
-    # also carry a curated pair: every GeoNames link is generated here
+    # Each feature is linked to its nearest candidate, including features that
+    # also have a Wikidata pair
     assert sorted(lines) == [
         f"<{config.lod_base}/gnis/feature/1> {SAMEAS} <http://sws.geonames.org/111/> .",
         f"<{config.lod_base}/gnis/feature/3> {SAMEAS} <http://sws.geonames.org/444/> .",
@@ -128,20 +128,20 @@ def test_alignment_guardrails(data_dirs, caplog, config):
             _gnis_row("10", "St. Marys River", "California", 40.0, -120.0, "Stream"),
             # found only via a GeoNames alternate name
             _gnis_row("11", "Round Lake", "California", 40.2, -120.0, "Lake"),
-            # class gate: same name, but a stream is not a town
+            # Same name, but a stream's class is incompatible with a town's
             _gnis_row("12", "Milltown", "California", 40.4, -120.0, "Stream"),
-            # ambiguous: two candidates at similar distances -> abstain
+            # Two candidates at similar distances, so the feature is left unpaired
             _gnis_row("13", "Twin Pond", "California", 40.6, -120.0, "Lake"),
-            # one-to-one: two features, one GeoNames record
+            # Two features with one GeoNames record, which is paired with one of them
             _gnis_row("14", "Shared Spring", "California", 41.0, -120.0, "Spring"),
             _gnis_row("15", "Shared Spring", "California", 41.03, -120.0, "Spring"),
-            # point-like class: 7 km exceeds the tighter threshold
+            # A point class, so 7 km exceeds the distance limit
             _gnis_row(
                 "16", "Faraway City", "California", 42.0, -120.0, "Populated Place"
             ),
-            # extended class: 7 km is within the default threshold
+            # Not a point class, so 7 km is within the distance limit
             _gnis_row("17", "Long Creek", "California", 43.0, -120.0, "Stream"),
-            # curated link exists: agreement measured, heuristic defers
+            # Has a Wikidata pair, which the link is compared with
             _gnis_row("18", "Check Lake", "California", 44.0, -120.0, "Lake"),
         ],
     )
@@ -179,7 +179,7 @@ def test_alignment_guardrails(data_dirs, caplog, config):
         f"<{config.lod_base}/gnis/feature/18>": "1818",
     }
     assert links == expected
-    # QA: the generated link agrees with the curated Wikidata pair
+    # The link of feature 18 agrees with its Wikidata pair
     assert (
         "GeoNames links agree with Wikidata on 1 of 1 features (100.0%)" in caplog.text
     )

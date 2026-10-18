@@ -18,7 +18,8 @@ class RetentionBuilder:
     archive output directory, so a release built out of order (a legacy dump
     added after later releases) is covered too. Every IRI subject that is
     in an earlier release but not in the new one has its lines copied, with
-    the blank nodes they reference, to retained-features.nt.gz:
+    the blank nodes they reference, to retained-features.nt.gz. The file the
+    lines are copied from depends on the subject.
 
         - Subjects already in the newest earlier historical release file are
           copied from it as they are, with their existing
@@ -35,12 +36,12 @@ class RetentionBuilder:
 
     RDF_TYPE: ClassVar[str] = "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>"
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         """
         Creates the builder.
 
-        :param config: Settings: the output and archive output directories
-            and lod_base.
+        :param config: Settings holding the output and archive output
+            directories and lod_base.
         """
         self.config = config
 
@@ -174,12 +175,11 @@ class RetentionBuilder:
         lines of the blank nodes they reference.
 
         A dropped feature's geometry and alias are IRI subjects of their own,
-        so they are collected by the same comparison; only blank nodes need
-        extra passes, and a file with nothing to collect is read once.
+        so they are collected by the same comparison as the feature.
 
         :param source: Earlier release or historical release file.
-        :param covered: IRI subjects to leave out: those in the new release
-            and those already collected from newer files.
+        :param covered: IRI subjects to leave out, which are those in the new
+            release and those already collected from newer files.
         :return: The collected lines, in file order.
         """
         keep = {

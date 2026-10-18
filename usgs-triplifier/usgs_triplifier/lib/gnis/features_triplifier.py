@@ -17,15 +17,16 @@ from .triplifier import FieldDescriptor, Triplifier
 class FeaturesTriplifier(Triplifier):
     """
     Converts the GNIS features (DomesticNames, or NationalFile in a legacy
-    dump) into features.nt.gz: each feature's id, class, state, county,
-    point geometry, map name and dates, plus its elevation for legacy dumps.
+    dump) into features.nt.gz. Each feature gets its id, class, state,
+    county, point geometry, map name and dates, and for legacy dumps its
+    elevation.
     """
 
     product: ClassVar[UsgsProduct] = UsgsProducts.FEATURES
     output_name: ClassVar[str] = OutputFiles.FEATURES
 
-    # GNIS feature classes (spaces removed) whose usgs: class has a different
-    # name
+    # GNIS feature classes (spaces removed) whose usgs: class has a
+    # different local name
     CLASS_RENAMES: ClassVar[dict[str, str]] = {
         "Range": "MountainRange",
         "Falls": "Waterfall",
@@ -35,7 +36,7 @@ class FeaturesTriplifier(Triplifier):
         "Pillar": "Rock",
     }
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         """
         Creates the triplifier with no aliases recorded.
 
@@ -180,8 +181,8 @@ class FeaturesTriplifier(Triplifier):
         self, value: str, row: dict, writer: NTriplesWriter
     ) -> dict | None:
         """
-        Builds the gnis:elevation blank node: a qudt:numericValue in feet
-        (xsd:double) with qudt:unit unit:FT.
+        Builds the gnis:elevation blank node, with the elevation as a
+        qudt:numericValue (xsd:double) and qudt:unit unit:FT.
 
         :param value: Elevation in feet.
         :param row: Source row (unused).
