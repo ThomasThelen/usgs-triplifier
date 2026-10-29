@@ -1,7 +1,9 @@
 import json
 import logging
+import re
 import time
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
+from itertools import batched
 from pathlib import Path
 from typing import ClassVar, TextIO
 
@@ -10,6 +12,12 @@ import requests
 from ..output_files import OutputFiles
 from .crosswalk import Crosswalk
 from .gnis.identifiers import FeatureIds
+
+
+class WikidataQueryError(Exception):
+    """
+    Raised when a Wikidata query fails on every attempt.
+    """
 
 
 class WikidataCrosswalk(Crosswalk):
@@ -26,14 +34,21 @@ class WikidataCrosswalk(Crosswalk):
         - skos:closeMatch the Getty Thesaurus of Geographic Names place (P1667)
 
     The items' GeoNames ids (P1566) are written to wikidata-geonames.csv.
+
+    The items and their GNIS ids are listed with one query. Their links are
+    queried in batches of BATCH_SIZE items, because a single query for every
+    item's links runs past the endpoint's 60 second limit.
     """
 
     output_name: ClassVar[str] = OutputFiles.WIKIDATA_CROSSWALK
 
-    QUERY: ClassVar[
+    ITEMS_QUERY: ClassVar[str] = "SELECT ?item ?gnisId WHERE { ?item wdt:P590 ?gnisId }"
+
+    # ITEMS is replaced by the batch's item terms, e.g. "wd:Q130018 wd:Q999"
+    LINKS_QUERY: ClassVar[
         str
-    ] = """SELECT ?item ?gnisId ?article ?geonamesId ?wofId ?locId ?tgnId WHERE {
-  ?item wdt:P590 ?gnisId .
+    ] = """SELECT ?item ?article ?geonamesId ?wofId ?locId ?tgnId WHERE {
+  VALUES ?item { ITEMS }
   OPTIONAL { ?article schema:about ?item ; schema:isPartOf <https://en.wikipedia.org/> . }
   OPTIONAL { ?item wdt:P1566 ?geonamesId . }
   OPTIONAL { ?item wdt:P6766 ?wofId . }
@@ -41,41 +56,87 @@ class WikidataCrosswalk(Crosswalk):
   OPTIONAL { ?item wdt:P1667 ?tgnId . }
 }"""
 
+    # A batch of 10,000 items took about 12 s on 2026-10-29
+    BATCH_SIZE: ClassVar[int] = 10_000
+
+    ITEM_PREFIX: ClassVar[str] = "http://www.wikidata.org/entity/"
+    R_ITEM_ID: ClassVar[re.Pattern] = re.compile(r"^Q\d+$")
+
     # The endpoint sometimes returns errors or truncated results under load,
     # so a failed query is retried, waiting RETRY_WAIT_S times the attempt
     # number in between
-    ATTEMPTS: ClassVar[int] = 3
+    ATTEMPTS: ClassVar[int] = 6
     RETRY_WAIT_S: ClassVar[int] = 15
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
     def build(self) -> Path | None:
         """
-        Queries Wikidata and writes the links and the GeoNames pairs.
+        Queries Wikidata and writes the links and the GeoNames pairs. When a
+        query fails on every attempt, the files written so far are deleted.
 
-        :return: Path of the links file, or None when every query attempt failed.
+        :return: Path of the links file, or None when a query failed.
         """
-        bindings = self._query()
-        if bindings is None:
-            self._log.warning("Wikidata query failed; writing no Wikidata links")
-            return None
-
         pairs_path = self.config.output_directory / OutputFiles.WIKIDATA_GEONAMES_PAIRS
-        with open(pairs_path, "w", encoding="utf-8") as pairs:
-            self.write_lines(self._links(bindings, pairs))
+        try:
+            gnis_ids = self._gnis_ids()
+            with open(pairs_path, "w", encoding="utf-8") as pairs:
+                self.write_lines(self._links(self._link_bindings(gnis_ids), pairs))
+        except WikidataQueryError as error:
+            self._log.warning(f"{error}; writing no Wikidata links")
+            self.output_path.unlink(missing_ok=True)
+            pairs_path.unlink(missing_ok=True)
+            return None
         return self.output_path
 
-    def _query(self) -> list[dict] | None:
+    def _gnis_ids(self) -> dict[str, list[str]]:
         """
-        Runs QUERY against the Wikidata SPARQL endpoint.
+        Lists the Wikidata items that have a GNIS id.
 
-        :return: The result bindings, or None when every attempt failed.
+        :return: Item id (e.g. Q130018) -> the item's GNIS ids.
+        :raises WikidataQueryError: If the query failed on every attempt.
+        """
+        gnis_ids: dict[str, list[str]] = {}
+        for binding in self._query(self.ITEMS_QUERY):
+            item_id = binding["item"]["value"].removeprefix(self.ITEM_PREFIX)
+            # An id that is not Q followed by digits can't be written as a
+            # wd: term in LINKS_QUERY
+            if self.R_ITEM_ID.match(item_id):
+                gnis_ids.setdefault(item_id, []).append(binding["gnisId"]["value"])
+        self._log.info(f"{len(gnis_ids)} Wikidata items have a GNIS id")
+        return gnis_ids
+
+    def _link_bindings(self, gnis_ids: dict[str, list[str]]) -> Iterator[dict]:
+        """
+        Queries the links of the items in batches of BATCH_SIZE.
+
+        :param gnis_ids: Item id -> the item's GNIS ids.
+        :return: Iterator of LINKS_QUERY bindings, one per GNIS id of the
+            binding's item, each with the GNIS id added as "gnisId".
+        :raises WikidataQueryError: If a batch's query failed on every attempt.
+        """
+        batches = list(batched(sorted(gnis_ids), self.BATCH_SIZE))
+        for number, batch in enumerate(batches, 1):
+            self._log.info(f"Querying Wikidata links, batch {number} of {len(batches)}")
+            terms = " ".join(f"wd:{item_id}" for item_id in batch)
+            for binding in self._query(self.LINKS_QUERY.replace("ITEMS", terms)):
+                item_id = binding["item"]["value"].removeprefix(self.ITEM_PREFIX)
+                for gnis_id in gnis_ids.get(item_id, []):
+                    yield {**binding, "gnisId": {"value": gnis_id}}
+
+    def _query(self, query: str) -> list[dict]:
+        """
+        Runs a query against the Wikidata SPARQL endpoint.
+
+        :param query: SPARQL SELECT query.
+        :return: The result bindings.
+        :raises WikidataQueryError: If every attempt failed.
         """
         for attempt in range(1, self.ATTEMPTS + 1):
             try:
                 response = requests.post(
                     self.config.wikidata_endpoint,
-                    data={"query": self.QUERY},
+                    data={"query": query},
                     headers={
                         "Accept": "application/sparql-results+json",
                         "User-Agent": "usgs-triplifier (support@dataone.org)",
@@ -84,14 +145,17 @@ class WikidataCrosswalk(Crosswalk):
                 )
                 response.raise_for_status()
                 # Some returned values contain raw control characters, which
-                # json.loads rejects unless strict is False
+                # json.loads rejects unless strict is False. A query that runs
+                # past the endpoint's time limit returns a truncated body,
+                # which json.loads rejects.
                 return json.loads(response.text, strict=False)["results"]["bindings"]
             except (requests.RequestException, ValueError, KeyError) as error:
                 self._log.warning(f"Wikidata query attempt {attempt} failed: {error}")
-                time.sleep(self.RETRY_WAIT_S * attempt)
-        return None
+                if attempt < self.ATTEMPTS:
+                    time.sleep(self.RETRY_WAIT_S * attempt)
+        raise WikidataQueryError(f"Wikidata query failed {self.ATTEMPTS} times")
 
-    def _links(self, bindings: list[dict], pairs: TextIO) -> Iterator[str]:
+    def _links(self, bindings: Iterable[dict], pairs: TextIO) -> Iterator[str]:
         """
         Yields the link lines for the query results and writes each GeoNames
         pair to the pairs file. Results whose GNIS id is not a number are skipped.
