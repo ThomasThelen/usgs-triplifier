@@ -1,14 +1,14 @@
 # GNIS Transformation & Loading
 
-Uses the `usgs_triplifier` package to fetch and transform the source data into RDF. Then configures and uploads the data to GraphDB
+The source data is fetched and transformed into RDF with the `usgs_triplifier` package. The data is then loaded into GraphDB, after the repository and its accounts are configured.
 
 ## Background
 
-A couple of things need to happen to get a fully working GraphDB instance:
-1. GraphDB has to spin up
-2. A new repository to hold the data needs to be created
-3. Accounts and permissions need to be configured
-4. The data needs to be generated (using the `usgs_triplifier` package)
-5. The data needs to be put in the GraphDB container, then told to ingest it
+A working GraphDB instance needs the following:
+1. GraphDB is started
+2. A repository for the data is created
+3. Accounts and permissions are configured
+4. The data is generated with the `usgs_triplifier` package
+5. The data is copied into the GraphDB container and imported
 
-These operations have been automated with the code in the `code/` folder. when GraphDB is in a ready state, the process of configuring a new GraphDB instance in a new container, downloading, triplifying, and uploading is done by calling `etl.py`. *This code is mounted into the same container that GraphDB runs in* and is called by the entrypoint script.
+These steps are automated by the code in the `code/` folder. Once GraphDB is ready, `etl.py` configures the repository and accounts, downloads the source data, triplifies it and loads it. *This code is mounted into the same container that GraphDB runs in* and is called by the entrypoint script.

@@ -20,14 +20,7 @@ The new archive files that are produced at the end of a new run are copied to th
 
 ## Building releases from legacy dumps
 
-A legacy dump is a GNIS export in the file format USGS used until 2021. USGS keeps these exports, up to 2021-08-25, under `prd-tnm/StagedProducts/GeographicNames/Archive/`. To publish one as a release:
-
-1. Copy its zips into `GNIS_INPUT_DIRECTORY`:
-   `MainDomestic/NationalFile.zip`, `TopicalGazetteers/AllNames.zip`,
-   `TopicalGazetteers/Feature_Description_History.zip`, and
-   `TopicalGazetteers/GOVT_UNITS.zip`.
-2. Run the ETL with `LEGACY_DUMP_DATE` set to the date of the export
-   (e.g. `2021-08-25`). The release is dated with that value.
+A legacy dump is a GNIS export in the file format USGS used until 2021. USGS keeps the last of these exports, from 2021-08-25, under `prd-tnm/StagedProducts/GeographicNames/Archive/`. `LEGACY_RELEASES` lists the dates of the legacy dumps that are published as releases, comma-separated, and defaults to `2021-08-25`. Each one whose release file is not in `ARCHIVE_OUTPUT_DIRECTORY` is built before the current release, so the legacy release is built in the first run and only the current release is built in later runs. To publish only a legacy release, run the ETL with `LEGACY_DUMP_DATE=2021-08-25`. The release is dated with that value. The dump's zips (`MainDomestic/NationalFile.zip`, `TopicalGazetteers/AllNames.zip`, `TopicalGazetteers/Feature_Description_History.zip` and `TopicalGazetteers/GOVT_UNITS.zip`) are downloaded into `GNIS_INPUT_DIRECTORY`. With `DOWNLOAD_DATA=false`, the zips already in that directory are read instead. A legacy dump can be published before or after the current releases, and the current products' files in the same directory are not read for it.
 
 The legacy file format differs from the current products in its file names, uppercase headers, two-letter state codes, and `Y`/`N` official-name flags. Legacy dumps include elevation, which is emitted as `gnis:elevation`. They have no GeoPackage, so their releases only have point geometries. The crosswalks are still harvested, and GraphDB is not reloaded.
 
@@ -41,6 +34,8 @@ There are three ways to run:
 3. Deploy with the gnis-deployment repository
 
 The tests are run with `cd usgs-triplifier && uv run pytest`.
+
+Releases are validated against the SHACL shapes with Apache Jena 5, which needs Java 17 or later. The Docker image includes both. To run the ETL or the SHACL tests outside Docker, download a Jena distribution, build the validator into it with `etl/jena/build-validator.sh <Jena directory>`, and set `JENA_HOME` to the Jena directory and `JENA_JAVA_HOME` to the Java runtime. Without them the SHACL tests are skipped.
 
 
 ## Acknowledgments
