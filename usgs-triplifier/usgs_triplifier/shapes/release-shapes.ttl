@@ -155,7 +155,7 @@ shapes:State a sh:NodeShape ;
 	sh:property [
 		sh:path gnis:stateCode ;
 		sh:datatype xsd:string ;
-		sh:pattern "^[A-Z]{2}$" ;
+		sh:pattern "^[A-Z]{2,3}$" ;
 		sh:maxCount 1 ;
 	] ;
 	sh:property [
