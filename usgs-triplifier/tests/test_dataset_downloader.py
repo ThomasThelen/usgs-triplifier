@@ -40,3 +40,30 @@ def test_download_fetches_gpkg_and_text_datasets(tmp_path):
     assert [str(p) for p in paths] == [call[2] for call in fake.calls]
     assert all(p.parent == download_dir for p in paths)
     assert download_dir.is_dir()
+
+
+def test_legacy_download_fetches_the_legacy_dump(tmp_path):
+    fake = FakeS3()
+
+    paths = DatasetDownloader(tmp_path, s3=fake).download(legacy_dump=True)
+
+    assert [call[1] for call in fake.calls] == [
+        UsgsProducts.FEATURES.legacy_key,
+        UsgsProducts.NAMES.legacy_key,
+        UsgsProducts.UNITS.legacy_key,
+        UsgsProducts.HISTORY.legacy_key,
+    ]
+    assert [p.name for p in paths] == [
+        "NationalFile.zip",
+        "AllNames.zip",
+        "GOVT_UNITS.zip",
+        "Feature_Description_History.zip",
+    ]
+
+
+def test_default_client_retries_requests(tmp_path):
+    s3 = DatasetDownloader(tmp_path).s3
+    assert s3.meta.config.retries == {
+        "mode": "standard",
+        "total_max_attempts": DatasetDownloader.ATTEMPTS,
+    }

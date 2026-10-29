@@ -22,6 +22,7 @@ from usgs_triplifier.lib.ontology_writer import OntologyWriter
 from usgs_triplifier.lib.retention import RetentionBuilder
 from usgs_triplifier.lib.validation import ReleaseValidator
 from usgs_triplifier.lib.wikidata_crosswalk import WikidataCrosswalk
+from usgs_triplifier.output_files import OutputFiles
 
 from config import EtlConfig
 from graphdb_adapter import GraphDBAdapter, GraphDBImportError
@@ -76,11 +77,18 @@ class Pipeline:
         Deduplicator(self.config).run()
 
         build_time = self.build_time()
-        self._log.info("Validating a sample of the release against the SHACL shapes")
+        self._log.info(
+            "Retaining the records of features dropped since earlier releases"
+        )
+        retained = RetentionBuilder(self.config).build(build_time) is not None
+        if not retained:
+            self._log.info("No records to retain")
+
+        self._log.info("Validating the release against the SHACL shapes")
         if not ReleaseValidator(self.config).validate():
             raise PipelineError("SHACL validation failed; the release was not exported")
 
-        release_path, historical_path = self.export(build_time)
+        release_path, historical_path = self.export(build_time, retained)
         self._log.info("Writing the dataset metadata")
         DatasetMetadataWriter(self.config).write(
             build_time, release_path, historical_path
@@ -96,17 +104,13 @@ class Pipeline:
 
     def download(self) -> None:
         """
-        Downloads the current USGS products into the input directory, unless
-        the input is a legacy dump, which is copied there by hand, or
-        DOWNLOAD_DATA is false.
+        Downloads the USGS products into the input directory, or the legacy
+        dump when LEGACY_DUMP_DATE is set, unless DOWNLOAD_DATA is false.
         """
-        if self.config.legacy_dump:
-            self._log.info(
-                f"Reading the {self.config.legacy_dump_date} legacy dump from the "
-                "input directory; skipping the download"
+        if self.config.download_data:
+            DatasetDownloader(self.config.input_directory).download(
+                self.config.legacy_dump
             )
-        elif self.config.download_data:
-            DatasetDownloader(self.config.input_directory).download()
         else:
             self._log.info(
                 "DOWNLOAD_DATA is false; using the files in the input directory"
@@ -147,23 +151,19 @@ class Pipeline:
             return datetime.fromisoformat(release_date).replace(tzinfo=timezone.utc)
         return datetime.now(timezone.utc)
 
-    def export(self, build_time: datetime) -> tuple[Path, Path | None]:
+    def export(self, build_time: datetime, retained: bool) -> tuple[Path, Path | None]:
         """
-        Writes the release file, then the retained records and, when there
-        are any, the historical release file.
+        Writes the release files to the archive output directory.
 
         :param build_time: Time the release is dated with.
+        :param retained: Whether retained-features.nt.gz has records.
         :return: (release file, historical release file or None).
         """
         exporter = ReleaseExporter(self.config)
-        release_path = exporter.export_release(build_time)
-        if RetentionBuilder(self.config).build(build_time) is None:
-            self._log.info(
-                "No records to retain: there is no earlier release in the "
-                "archive, or no feature was dropped since it"
-            )
-            return release_path, None
-        return release_path, exporter.export_historical(build_time)
+        # The website lists a release once its file exists, so the historical
+        # file is written before the release file
+        historical_path = exporter.export_historical(build_time) if retained else None
+        return exporter.export_release(build_time), historical_path
 
     def load_graphdb(self) -> None:
         """
@@ -204,3 +204,56 @@ class Pipeline:
                         f"GraphDB responded {response.status_code}: {response.text}"
                     )
                 raise PipelineError(f"{description} failed: {error}") from error
+
+
+class ReleasePublisher:
+    """
+    Publishes the legacy releases missing from the archive output directory,
+    then the current release.
+    """
+
+    _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
+
+    def __init__(self, config: EtlConfig) -> None:
+        """
+        Creates the publisher.
+
+        :param config: Settings for every step.
+        """
+        self.config = config
+
+    def run(self) -> None:
+        """
+        Publishes each missing legacy release in date order, then the current
+        release. When LEGACY_DUMP_DATE is set, only that legacy dump is
+        published.
+
+        :raises PipelineError: If a release can't be published. The releases
+            after it are not built.
+        """
+        if self.config.legacy_dump:
+            Pipeline(self.config).run()
+            return
+        for date in self.missing_legacy_releases():
+            self._log.info(f"Publishing the legacy release of {date}")
+            Pipeline(self.config.model_copy(update={"legacy_dump_date": date})).run()
+        Pipeline(self.config).run()
+
+    def missing_legacy_releases(self) -> list[str]:
+        """
+        Lists the LEGACY_RELEASES dates whose release file is not in the
+        archive output directory.
+
+        :return: The dates in date order.
+        """
+        archive_dir = self.config.archive_output_directory
+        return [
+            date
+            for date in sorted(self.config.legacy_releases)
+            if not (
+                archive_dir
+                / OutputFiles.release(
+                    OutputFiles.release_id(datetime.fromisoformat(date))
+                )
+            ).exists()
+        ]

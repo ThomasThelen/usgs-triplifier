@@ -120,12 +120,17 @@ class UsgsProducts:
         return [cls.FEATURES, cls.NAMES, cls.UNITS, cls.HISTORY]
 
     @classmethod
-    def download_keys(cls) -> list[str]:
+    def download_keys(cls, legacy_dump: bool = False) -> list[str]:
         """
-        Lists the S3 keys of the current products, in download order.
+        Lists the S3 keys of the files a release is built from, in download
+        order.
 
-        :return: The GeoPackage key followed by the text product keys.
+        :param legacy_dump: Whether the release is built from a legacy dump.
+        :return: The legacy dump files for a legacy dump, otherwise the
+            GeoPackage key followed by the current text product keys.
         """
+        if legacy_dump:
+            return [p.legacy_key for p in cls.text_products()]
         return [cls.GEOPACKAGE.key, *(p.key for p in cls.text_products())]
 
     @classmethod
@@ -137,8 +142,4 @@ class UsgsProducts:
         :return: The legacy dump files for a legacy dump, otherwise the
             current products including the GeoPackage.
         """
-        if legacy_dump:
-            keys = [p.legacy_key for p in cls.text_products()]
-        else:
-            keys = cls.download_keys()
-        return [f"{cls.S3_BASE}/{key}" for key in keys]
+        return [f"{cls.S3_BASE}/{key}" for key in cls.download_keys(legacy_dump)]

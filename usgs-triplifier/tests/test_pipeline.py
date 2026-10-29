@@ -6,7 +6,7 @@ import requests
 import pipeline
 from config import EtlConfig
 from graphdb_adapter import GraphDBAdapter, GraphDBImportError
-from pipeline import Pipeline, PipelineError
+from pipeline import Pipeline, PipelineError, ReleasePublisher
 
 
 class FakeAdapter:
@@ -130,3 +130,54 @@ def test_build_time_prefers_the_legacy_dump_date(etl_config):
     assert Pipeline(etl_config).build_time() == datetime(
         2021, 8, 25, tzinfo=timezone.utc
     )
+
+
+@pytest.fixture()
+def pipeline_runs(monkeypatch) -> list[str | None]:
+    """
+    Replaces Pipeline.run with a recorder of each run's LEGACY_DUMP_DATE.
+
+    :param monkeypatch: pytest monkeypatch.
+    :return: The recorded dates, None for a current release.
+    """
+    runs: list[str | None] = []
+    monkeypatch.setattr(
+        Pipeline, "run", lambda self: runs.append(self.config.legacy_dump_date)
+    )
+    return runs
+
+
+def test_publisher_builds_missing_legacy_releases_first(etl_config, pipeline_runs):
+    etl_config.legacy_releases = ["2021-08-25", "2019-01-01"]
+    ReleasePublisher(etl_config).run()
+    assert pipeline_runs == ["2019-01-01", "2021-08-25", None]
+
+
+def test_publisher_skips_legacy_releases_in_the_archive(etl_config, pipeline_runs):
+    etl_config.archive_output_directory.mkdir(parents=True, exist_ok=True)
+    (etl_config.archive_output_directory / "gnis-ld-210825.nt.gz").touch()
+    ReleasePublisher(etl_config).run()
+    assert pipeline_runs == [None]
+
+
+def test_publisher_only_builds_the_legacy_dump_date(etl_config, pipeline_runs):
+    etl_config.legacy_dump_date = "2021-08-25"
+    ReleasePublisher(etl_config).run()
+    assert pipeline_runs == ["2021-08-25"]
+
+
+def test_publisher_stops_when_a_legacy_release_fails(etl_config, monkeypatch):
+    def fail(self: Pipeline) -> None:
+        raise PipelineError("SHACL validation failed")
+
+    monkeypatch.setattr(Pipeline, "run", fail)
+    with pytest.raises(PipelineError):
+        ReleasePublisher(etl_config).run()
+
+
+def test_legacy_releases_are_read_comma_separated(monkeypatch):
+    monkeypatch.setenv("GDB_PASS", "secret")
+    monkeypatch.setenv("LEGACY_RELEASES", "2021-08-25, 2019-01-01")
+    assert EtlConfig().legacy_releases == ["2021-08-25", "2019-01-01"]
+    monkeypatch.setenv("LEGACY_RELEASES", "")
+    assert EtlConfig().legacy_releases == []
