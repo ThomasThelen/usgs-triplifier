@@ -1,34 +1,55 @@
-import gzip
 import logging
+import os
+import shutil
+import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
-import pyshacl
-from rdflib import Graph
-
 from ..config import Config
+
+
+class ShaclValidationError(RuntimeError):
+    """
+    Raised when the Jena loader or validator does not run to completion.
+    """
+
+
+@dataclass(frozen=True)
+class ShaclResult:
+    """
+    The validation results of one severity, result path and constraint
+    component.
+    """
+
+    severity: str
+    count: int
+    path: str
+    component: str
+    focus_node: str
+    message: str
 
 
 class ReleaseValidator:
     """
     Checks the generated N-Triples files against the SHACL shapes in
-    shapes/release-shapes.ttl before a release is exported.
+    shapes/release-shapes.ttl with Apache Jena before a release is exported.
 
-    A release has tens of millions of triples, too many for pyshacl, which
-    holds the data in an rdflib Graph. So only the first
-    shacl_sample_subjects IRI subjects of each file are validated. A mapping
-    error in a triplifier or crosswalk affects every record of its file,
-    including the validated ones. Violations fail the check. Warnings, used
-    for known problems in the USGS data such as unparseable dates, are only
-    logged.
+    Every file is loaded into a temporary TDB2 store in the output directory,
+    and the whole store is validated, so no triple is skipped and a subject's
+    triples from different files are checked together.
     """
 
     SHAPES_PATH: ClassVar[Path] = (
         Path(__file__).parent.parent / "shapes" / "release-shapes.ttl"
     )
 
-    # Base IRI written in the shapes file; replaced with lod_base when loaded
-    SHAPES_LOD_BASE: ClassVar[str] = "http://gnis-ld.org/lod"
+    STORE_NAME: ClassVar[str] = "shacl-store"
+    VALIDATOR_JAR: ClassVar[str] = "validate-release.jar"
+    VALIDATOR_CLASS: ClassVar[str] = "ValidateRelease"
+
+    # Number of results of each kind that are logged
+    LOGGED_RESULTS: ClassVar[int] = 20
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
@@ -37,106 +58,129 @@ class ReleaseValidator:
         Creates the validator.
 
         :param config: Settings holding the output directory, lod_base and
-            shacl_sample_subjects.
+            the Jena settings.
         """
         self.config = config
 
     def validate(self) -> bool:
         """
-        Validates a sample of every .nt.gz in the output directory.
+        Validates every .nt.gz in the output directory.
 
-        :return: False when any violation is found; True otherwise, including
-            when there are no files to validate.
+        :return: False when any violation is found, True otherwise.
+        :raises ShaclValidationError: If the Jena loader or validator fails.
         """
-        sample = Graph()
         paths = sorted(self.config.output_directory.glob("*.nt.gz"))
-        for path in paths:
-            lines = self._sample_lines(path, self.config.shacl_sample_subjects)
-            sample.parse(data="".join(lines), format="nt")
         if not paths:
             self._log.warning("No generated files to validate")
             return True
 
-        shapes = Graph()
-        shapes_text = self.SHAPES_PATH.read_text().replace(
-            self.SHAPES_LOD_BASE, self.config.lod_base
-        )
-        shapes.parse(data=shapes_text, format="turtle")
-        _, report, _ = pyshacl.validate(
-            sample, shacl_graph=shapes, inference="none", advanced=False
-        )
+        store = self.config.output_directory / self.STORE_NAME
+        shutil.rmtree(store, ignore_errors=True)
+        try:
+            self._load(store, paths)
+            results = self._run_validator(store)
+        finally:
+            shutil.rmtree(store, ignore_errors=True)
 
-        violations, warnings = self._partition_results(report)
+        violations = [r for r in results if r.severity == "Violation"]
+        others = [r for r in results if r.severity != "Violation"]
         self._log.info(
-            f"SHACL: validated {len(sample)} sampled triples from {len(paths)} files: "
-            f"{len(violations)} violations, {len(warnings)} warnings"
+            f"SHACL: validated {len(paths)} files: "
+            f"{sum(r.count for r in violations)} violations, "
+            f"{sum(r.count for r in others)} warnings"
         )
-        for message in warnings[:10]:
-            self._log.warning(f"SHACL warning: {message}")
-        for message in violations[:20]:
-            self._log.error(f"SHACL violation: {message}")
+        for result in others[: self.LOGGED_RESULTS]:
+            self._log.warning(f"SHACL warning: {self._describe(result)}")
+        for result in violations[: self.LOGGED_RESULTS]:
+            self._log.error(f"SHACL violation: {self._describe(result)}")
         return not violations
 
+    def _load(self, store: Path, paths: list[Path]) -> None:
+        """
+        Loads files into a new TDB2 store with tdb2.tdbloader.
+
+        :param store: Directory of the store.
+        :param paths: Gzipped N-Triples files.
+        :raises ShaclValidationError: If the loader fails.
+        """
+        loader = self.config.jena_home / "bin" / "tdb2.tdbloader"
+        self._run([str(loader), "--loc", str(store), *map(str, paths)], "loader")
+
+    def _run_validator(self, store: Path) -> list[ShaclResult]:
+        """
+        Validates the default graph of a TDB2 store with ValidateRelease.
+
+        :param store: Directory of the store.
+        :return: One result per severity, result path and constraint component.
+        :raises ShaclValidationError: If the validator fails.
+        """
+        jena = self.config.jena_home
+        classpath = f"{jena / self.VALIDATOR_JAR}{os.pathsep}{jena / 'lib' / '*'}"
+        command = [
+            str(self.config.jena_java_home / "bin" / "java"),
+            *self.config.jena_jvm_args.split(),
+            "-cp",
+            classpath,
+            self.VALIDATOR_CLASS,
+            str(store),
+            str(self.SHAPES_PATH),
+            f"{self.config.lod_base}/",
+        ]
+        output = self._run(command, "validator")
+        return [self._parse(line) for line in output.splitlines() if line.strip()]
+
+    def _run(self, command: list[str], name: str) -> str:
+        """
+        Runs a Jena command with the configured Java runtime and JVM options.
+
+        :param command: The command and its arguments.
+        :param name: Name of the command used in the error message.
+        :return: The command's standard output.
+        :raises ShaclValidationError: If the command exits with a non-zero
+            status or cannot be started.
+        """
+        env = {
+            **os.environ,
+            "JAVA_HOME": str(self.config.jena_java_home),
+            "JVM_ARGS": self.config.jena_jvm_args,
+        }
+        try:
+            completed = subprocess.run(
+                command, capture_output=True, text=True, env=env, check=False
+            )
+        except OSError as error:
+            raise ShaclValidationError(f"The Jena {name} could not be started: {error}")
+        if completed.returncode != 0:
+            stderr = completed.stderr.strip().splitlines()[-20:]
+            raise ShaclValidationError(
+                f"The Jena {name} exited with status {completed.returncode}:\n"
+                + "\n".join(stderr)
+            )
+        return completed.stdout
+
     @staticmethod
-    def _sample_lines(path: Path, max_subjects: int) -> list[str]:
+    def _parse(line: str) -> ShaclResult:
         """
-        Collects the lines of a file's first IRI subjects.
+        Parses one line of ValidateRelease output.
 
-        Reads from the start of the file and keeps every line until a line
-        introduces subject number max_subjects + 1. A line whose subject is a
-        blank node is kept when an earlier kept line has that blank node as
-        its object, which covers blank nodes one level deep, such as elevations.
-
-        :param path: Gzipped N-Triples file.
-        :param max_subjects: Number of distinct IRI subjects to collect.
-        :return: The collected lines.
+        :param line: Tab-separated severity, count, path, component, focus
+            node and message.
+        :return: The result.
         """
-        lines: list[str] = []
-        subjects: set[str] = set()
-        blank_nodes: set[str] = set()
-        with gzip.open(path, "rt", encoding="utf-8") as f:
-            for line in f:
-                if not line.strip() or line.startswith("#"):
-                    continue
-                subject = line[: line.index(" ")]
-                if subject.startswith("_:"):
-                    if subject in blank_nodes:
-                        lines.append(line)
-                    continue
-                if subject not in subjects:
-                    if len(subjects) >= max_subjects:
-                        break
-                    subjects.add(subject)
-                lines.append(line)
-                obj = line[:-2].strip()
-                obj = obj[obj.rindex(" ") + 1 :] if " " in obj else obj
-                if obj.startswith("_:"):
-                    blank_nodes.add(obj)
-        return lines
+        severity, count, path, component, focus_node, message = line.rstrip("\n").split(
+            "\t", 5
+        )
+        return ShaclResult(severity, int(count), path, component, focus_node, message)
 
     @staticmethod
-    def _partition_results(report: Graph) -> tuple[list[str], list[str]]:
+    def _describe(result: ShaclResult) -> str:
         """
-        Splits a SHACL validation report by severity.
+        Formats a result for the log.
 
-        :param report: Report graph returned by pyshacl.validate.
-        :return: (violations, results of any other severity), each a list of
-            "focus node: message" strings.
+        :param result: The result.
+        :return: The count, path, constraint component and one example.
         """
-        query = """
-            PREFIX sh: <http://www.w3.org/ns/shacl#>
-            SELECT ?severity ?focus ?message WHERE {
-                ?r a sh:ValidationResult ;
-                   sh:resultSeverity ?severity ;
-                   sh:focusNode ?focus ;
-                   sh:resultMessage ?message .
-            }
-        """
-        violations, others = [], []
-        for severity, focus, message in report.query(query):
-            text = f"{focus}: {message}"
-            if str(severity).endswith("Violation"):
-                violations.append(text)
-            else:
-                others.append(text)
-        return violations, others
+        return (
+            f"{result.count} x {result.path} {result.component}, "
+            f"e.g. {result.focus_node}: {result.message}"
+        )

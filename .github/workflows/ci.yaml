@@ -25,9 +25,24 @@ jobs:
   test:
     name: Unit tests (80% coverage)
     runs-on: ubuntu-latest
+    env:
+      JENA_VERSION: "5.6.0"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install Jena and build the SHACL validator
+        run: |
+          base=https://archive.apache.org/dist/jena/binaries/apache-jena-$JENA_VERSION.tar.gz
+          curl -sSfL -o jena.tar.gz "$base"
+          echo "$(curl -sSfL "$base.sha512" | cut -d ' ' -f 1)  jena.tar.gz" | sha512sum -c -
+          tar xzf jena.tar.gz -C "$RUNNER_TEMP"
+          etl/jena/build-validator.sh "$RUNNER_TEMP/apache-jena-$JENA_VERSION"
+          echo "JENA_HOME=$RUNNER_TEMP/apache-jena-$JENA_VERSION" >> "$GITHUB_ENV"
+          echo "JENA_JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
       - name: Install dependencies
         working-directory: usgs-triplifier
         run: uv sync

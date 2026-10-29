@@ -83,9 +83,20 @@ class Config(BaseSettings):
         default=2_000, alias="GEONAMES_AMBIGUITY_MIN_GAP_M"
     )
 
-    # Number of IRI subjects at the start of each generated file that are
-    # validated against the SHACL shapes
-    shacl_sample_subjects: int = Field(default=2_000, alias="SHACL_SAMPLE_SUBJECTS")
+    # Apache Jena distribution with validate-release.jar, built by
+    # etl/jena/build-validator.sh
+    jena_home: Path = Field(default=Path("/opt/jena"), alias="JENA_HOME")
+
+    # Java runtime that Jena runs on. Jena 5 needs Java 17 or later.
+    jena_java_home: Path = Field(
+        default=Path("/opt/java/jena-jre"), alias="JENA_JAVA_HOME"
+    )
+
+    # JVM options for the Jena loader and validator. The SHACL pattern for
+    # WKT multipoints recurses once per point in Java's regex engine, and a
+    # multipoint has up to about 11,000 points, so the default thread stack
+    # overflows.
+    jena_jvm_args: str = Field(default="-Xmx3g -Xss64m", alias="JENA_JVM_ARGS")
 
     # Census national gazetteer files (the ANSI code column is the GNIS id)
     census_gazetteer_base: str = Field(

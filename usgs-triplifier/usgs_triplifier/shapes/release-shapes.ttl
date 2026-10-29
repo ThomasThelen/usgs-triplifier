@@ -7,9 +7,9 @@
 @prefix qudt: <http://qudt.org/schema/qudt/> .
 @prefix geosparql: <http://www.opengis.net/ont/geosparql#> .
 
-@prefix usgs: <http://gnis-ld.org/lod/usgs/ontology/> .
-@prefix gnis: <http://gnis-ld.org/lod/gnis/ontology/> .
-@prefix shapes: <http://gnis-ld.org/lod/gnis/shapes/> .
+@prefix usgs: <usgs/ontology/> .
+@prefix gnis: <gnis/ontology/> .
+@prefix shapes: <gnis/shapes/> .
 
 
 shapes: a owl:Ontology ;
@@ -59,12 +59,22 @@ shapes:FeatureRecord a sh:NodeShape ;
 	sh:property [
 		sh:path gnis:state ;
 		sh:nodeKind sh:IRI ;
-		sh:maxCount 1 ;
 	] ;
 	sh:property [
 		sh:path gnis:county ;
 		sh:nodeKind sh:IRI ;
+	] ;
+	# Legacy dumps list a feature that crosses a state or national border
+	# once per state and county, so it has several of each
+	sh:property [
+		sh:path gnis:state ;
 		sh:maxCount 1 ;
+		sh:severity sh:Warning ;
+	] ;
+	sh:property [
+		sh:path gnis:county ;
+		sh:maxCount 1 ;
+		sh:severity sh:Warning ;
 	] ;
 	sh:property [
 		sh:path gnis:dateFeatureCreated ;

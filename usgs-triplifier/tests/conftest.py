@@ -44,6 +44,23 @@ def config(tmp_path: Path) -> Config:
 
 
 @pytest.fixture()
+def jena_config(config: Config) -> Config:
+    """
+    Returns the test's settings when JENA_HOME and JENA_JAVA_HOME point at a
+    Jena distribution with validate-release.jar and a Java runtime, and skips
+    the test otherwise.
+
+    :param config: The test's settings.
+    :return: The settings.
+    """
+    jar = config.jena_home / "validate-release.jar"
+    java = config.jena_java_home / "bin" / "java"
+    if not jar.exists() or not java.exists():
+        pytest.skip("JENA_HOME or JENA_JAVA_HOME does not point at a Jena build")
+    return config
+
+
+@pytest.fixture()
 def data_dirs(config: Config) -> tuple[Path, Path]:
     """
     Returns the test's input and output directories.
