@@ -68,6 +68,39 @@ def test_ansi_codes_join_to_geoids(data_dirs, monkeypatch, config):
     assert len(lines) == 4  # the non-numeric ANSI row is skipped
 
 
+def test_each_feature_gets_one_geoid(data_dirs, monkeypatch, config):
+    counties = "USPS|GEOID|ANSICODE|NAME\nVA|51810|01498559|Virginia Beach city\n"
+    places = (
+        "USPS|GEOID|ANSICODE|NAME\n"
+        "VA|5182000|01498559|Virginia Beach city\n"
+        "VA|5118428|02832523|Colonial Forge CDP\n"
+        "VA|5125736|02832523|Embrey Mill CDP\n"
+    )
+    responses = {
+        "counties": FakeResponse(
+            _zip_bytes("2025_Gaz_counties_national.txt", counties)
+        ),
+        "place": FakeResponse(_zip_bytes("2025_Gaz_place_national.txt", places)),
+    }
+    monkeypatch.setattr(
+        census_crosswalk.requests,
+        "get",
+        lambda url, **kw: responses["counties" if "counties" in url else "place"],
+    )
+
+    with gzip.open(CensusCrosswalk(config).build(), "rt", encoding="utf-8") as f:
+        lines = f.read().splitlines()
+
+    prop = f"<{config.lod_base}/gnis/ontology/censusGeoid>"
+    # An independent city in both files gets its county GEOID
+    assert [line for line in lines if "/1498559>" in line and prop in line] == [
+        f'<{config.lod_base}/gnis/feature/1498559> {prop} "51810" .'
+    ]
+    # A code shared by two places in one file is not linked
+    assert not [line for line in lines if "/2832523>" in line]
+    assert len(lines) == 2
+
+
 def test_unreachable_gazetteer_is_not_fatal(data_dirs, monkeypatch, config):
     def boom(*a, **kw):
         raise requests.ConnectionError("census is down")

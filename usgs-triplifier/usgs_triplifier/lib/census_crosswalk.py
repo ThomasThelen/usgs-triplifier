@@ -16,14 +16,22 @@ class CensusCrosswalk(Crosswalk):
     """
     Links GNIS counties and places to their Census GEOIDs, using the Census
     Bureau's national gazetteer files.
+
+    Each feature gets at most one GEOID. An independent city, such as
+    Virginia Beach, is listed in both the county and the place file under one
+    ANSI code, and gets its county GEOID. An ANSI code listed twice in one
+    file belongs to two Census entities, so no feature can be linked from
+    it and the code is skipped.
     """
 
     output_name: ClassVar[str] = OutputFiles.CENSUS_CROSSWALK
 
-    # Gazetteer files read, without the "<year>_" prefix of their names
+    # Gazetteer files read, without the "<year>_" prefix of their names. A
+    # GEOID from a later file replaces one from an earlier file for the same
+    # ANSI code, so the county file is last.
     GAZETTEER_FILES: ClassVar[list[str]] = [
-        "Gaz_counties_national.zip",
         "Gaz_place_national.zip",
+        "Gaz_counties_national.zip",
     ]
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
@@ -49,23 +57,45 @@ class CensusCrosswalk(Crosswalk):
                 )
                 return None
 
-        self.write_lines(self._links(pd.concat(frames, ignore_index=True)))
+        self.write_lines(self._links(self._geoids(frames)))
         return self.output_path
 
-    def _links(self, gazetteer: pd.DataFrame) -> Iterator[str]:
+    def _geoids(self, gazetteers: list[pd.DataFrame]) -> dict[str, str]:
         """
-        Yields the two link lines for every gazetteer row with a numeric
-        ANSICODE and a GEOID.
+        Maps the ANSI codes of the gazetteer files to one GEOID each.
 
-        :param gazetteer: Rows with GEOID and ANSICODE columns.
+        :param gazetteers: Rows with GEOID and ANSICODE columns, one frame
+            per file, in the order of GAZETTEER_FILES.
+        :return: ANSI code without leading zeros -> GEOID.
+        """
+        geoids: dict[str, str] = {}
+        for gazetteer in gazetteers:
+            codes: dict[str, list[str]] = {}
+            for row in gazetteer.itertuples():
+                ansi = str(row.ANSICODE).strip()
+                geoid = str(row.GEOID).strip()
+                if ansi.isdigit() and geoid:
+                    codes.setdefault(ansi.lstrip("0"), []).append(geoid)
+            for ansi, file_geoids in codes.items():
+                if len(file_geoids) > 1:
+                    self._log.warning(
+                        f"ANSI code {ansi} has the GEOIDs {', '.join(file_geoids)} "
+                        "in one gazetteer file and is not linked"
+                    )
+                    geoids.pop(ansi, None)
+                else:
+                    geoids[ansi] = file_geoids[0]
+        return geoids
+
+    def _links(self, geoids: dict[str, str]) -> Iterator[str]:
+        """
+        Yields the two link lines of every feature with a GEOID.
+
+        :param geoids: ANSI code -> GEOID.
         :return: Iterator of N-Triples lines.
         """
         geoid_property = f"<{self.config.lod_base}/gnis/ontology/censusGeoid>"
-        for row in gazetteer.itertuples():
-            ansi = str(row.ANSICODE).strip()
-            geoid = str(row.GEOID).strip()
-            if not ansi.isdigit() or not geoid:
-                continue
+        for ansi, geoid in geoids.items():
             feature = self.feature_iri(ansi)
             yield f'{feature} {geoid_property} "{geoid}" .'
             yield (

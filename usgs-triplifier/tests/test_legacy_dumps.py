@@ -80,6 +80,51 @@ def test_features_from_legacy_national_file(data_dirs, monkeypatch, config):
     ]
 
 
+def test_row_whose_state_code_and_number_differ_is_skipped(data_dirs, config):
+    input_dir, output_dir = data_dirs
+    config.legacy_dump_date = "2021-08-25"
+    airport = (
+        "|Boswell Bay Airport|Airport|{}|02||063|||60.42306|-146.14591|||||62|203"
+        "|Cordova|07/01/1995|06/23/2021"
+    )
+    river = (
+        "774784|North Fork Milk River|Stream|{}|{}|||||49.1373|-112.37589|||||1083"
+        "|3553|Unknown|04/04/1980|12/14/2010"
+    )
+    make_text_zip(
+        input_dir,
+        "NationalFile.zip",
+        "NationalFile_20210825.txt",
+        [
+            NATIONAL_FILE_HEADER,
+            "1417597" + airport.format("AK"),
+            # The 2021 file copies Chugach Census Area features under AZ
+            # with Alaska's state number
+            "1417597" + airport.format("AZ"),
+            # A Canadian province code has its own numbering and is kept
+            river.format("MT", "30"),
+            river.format("AB", "01"),
+        ],
+    )
+
+    FeaturesTriplifier(config).run()
+
+    graph = parse_nt_gz(output_dir / "features.nt.gz")
+    gnisf = config.prefix_list["gnisf"]
+    gnis = config.prefix_list["gnis"]
+    gnisf_alias = config.prefix_list["gnisf-alias"]
+    assert list(graph.objects(gnisf["1417597"], gnis["state"])) == [
+        gnisf_alias["Alaska"]
+    ]
+    assert len(list(graph.objects(gnisf["1417597"], gnis["elevation"]))) == 1
+    assert set(graph.objects(gnisf["774784"], gnis["state"])) == {
+        gnisf_alias["Montana"],
+        gnisf_alias["AB"],
+    }
+    # The elevation repeated in every row of the feature is written once
+    assert len(list(graph.objects(gnisf["774784"], gnis["elevation"]))) == 1
+
+
 def test_names_from_legacy_all_names(data_dirs, monkeypatch, config):
     input_dir, output_dir = data_dirs
     config.legacy_dump_date = "2021-08-25"
@@ -191,6 +236,8 @@ def test_units_from_legacy_govt_units(data_dirs, monkeypatch, config):
     assert list(graph.objects(denali, gnis["state"])) == [gnisf_alias["Alaska"]]
     assert list(graph.objects(denali, OWL.sameAs)) == [gnisf["1419988"]]
     assert (gnisf_alias["Alaska"], RDF.type, gnis["State"]) in graph
+    # The ";" in the STATE row's COUNTY_NAME column is not a county name
+    assert list(graph.objects(gnisf_alias["Alaska"], gnis["countyName"])) == []
     assert list(graph.objects(gnisf_alias["Alaska"], gnis["stateName"])) == [
         Literal("Alaska", lang="en")
     ]

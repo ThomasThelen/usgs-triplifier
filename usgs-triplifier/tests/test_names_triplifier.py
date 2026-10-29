@@ -19,6 +19,10 @@ def test_names_end_to_end(data_dirs, config):
             '1|Blue Lake|Official|"""History of Alameda County"" p. 12"|01/02/1998',
             "1|Old Blue|Variant|ignored citation|03/04/1999",
             "2|Twin Peaks|Official|Citation Unknown|bogus-date",
+            "3|Oak Hill|Official|Text Citation Unknown|2001-02-03",
+            "4|Elm Spring|Official|Map U.S. Geological Survey 1981 |12/31/1981",
+            "5|Ash Creek|Official|Unknown |01/01/1990",
+            "6|Fir Knob|Official|Unknown J. Smith 1902|01/01/1990",
         ],
     )
 
@@ -45,12 +49,29 @@ def test_names_end_to_end(data_dirs, config):
     citations = list(graph.objects(gnisf["1"], gnis["citation"]))
     assert citations == [Literal('"History of Alameda County" p. 12', lang="en")]
 
-    # 'Citation Unknown' maps to the well-known IRI; bad date passes through
+    # 'Citation Unknown', with or without the source type the current
+    # products prefix it with, maps to the well-known IRI
     assert list(graph.objects(gnisf["2"], gnis["citation"])) == [
         gnis["UnknownCitation"]
     ]
-    assert list(graph.objects(gnisf["2"], gnis["dateNameCreated"])) == [
-        Literal("bogus-date")
+    assert list(graph.objects(gnisf["3"], gnis["citation"])) == [
+        gnis["UnknownCitation"]
+    ]
+    # A date in neither format is skipped, an ISO date is accepted
+    assert list(graph.objects(gnisf["2"], gnis["dateNameCreated"])) == []
+    assert list(graph.objects(gnisf["3"], gnis["dateNameCreated"])) == [
+        Literal("2001-02-03", datatype=XSD.date)
+    ]
+    # Surrounding whitespace is removed from a citation
+    assert list(graph.objects(gnisf["4"], gnis["citation"])) == [
+        Literal("Map U.S. Geological Survey 1981", lang="en")
+    ]
+    # A bare "Unknown" is a placeholder; "Unknown" followed by a source is kept
+    assert list(graph.objects(gnisf["5"], gnis["citation"])) == [
+        gnis["UnknownCitation"]
+    ]
+    assert list(graph.objects(gnisf["6"], gnis["citation"])) == [
+        Literal("Unknown J. Smith 1902", lang="en")
     ]
 
 

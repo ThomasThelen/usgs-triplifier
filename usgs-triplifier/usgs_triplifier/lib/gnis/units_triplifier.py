@@ -37,7 +37,7 @@ class UnitsTriplifier(Triplifier):
                 "gnis:countyCode", self.county_numeric_object, optional=True
             ),
             "county_name": FieldDescriptor(
-                "gnis:countyName", self.english_literal, optional=True
+                "gnis:countyName", self.county_name_object, optional=True
             ),
             "state_numeric": FieldDescriptor(
                 "gnis:stateId", self.state_only_object, optional=True
@@ -91,16 +91,31 @@ class UnitsTriplifier(Triplifier):
         """
         return self.config.prefix_list["gnis"][value.capitalize()]
 
-    def county_numeric_object(self, value: str, row: dict) -> Literal:
+    def county_numeric_object(self, value: str, row: dict) -> Literal | str:
         """
-        Builds the gnis:countyCode literal. County FIPS codes have three
-        digits, and the source drops leading zeros, so they are restored.
+        Builds the gnis:countyCode literal, which only COUNTY units get.
+        County FIPS codes have three digits, and the source drops leading
+        zeros, so they are restored.
 
         :param value: County code.
-        :param row: Source row (unused).
-        :return: The three-digit code as a plain literal.
+        :param row: Source row; unit_type selects whether a triple is written.
+        :return: The three-digit code as a plain literal for a COUNTY,
+            otherwise an empty string.
         """
-        return Literal(value.zfill(3))
+        return Literal(value.zfill(3)) if row.get("unit_type") == "COUNTY" else ""
+
+    def county_name_object(self, value: str, row: dict) -> Literal | str:
+        """
+        Builds the gnis:countyName literal, which only COUNTY units get.
+
+        :param value: County name.
+        :param row: Source row; unit_type selects whether a triple is written.
+        :return: The name as an English literal for a COUNTY, otherwise an
+            empty string.
+        """
+        return (
+            self.english_literal(value, row) if row.get("unit_type") == "COUNTY" else ""
+        )
 
     def state_only_object(self, value: str, row: dict) -> Literal | str:
         """

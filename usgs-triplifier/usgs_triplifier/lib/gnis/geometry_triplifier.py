@@ -26,6 +26,11 @@ class GeometryTriplifier:
     # Rows read from the layer per call
     BATCH_SIZE: ClassVar[int] = 100_000
 
+    # USGS places a feature with an unknown location at 0,0. In the
+    # GeoPackage the point is a few 1e-11 degrees from 0,0, so a geometry
+    # whose coordinates are all within this many degrees of 0 is skipped.
+    UNKNOWN_LOCATION_TOLERANCE: ClassVar[float] = 1e-6
+
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
     def __init__(self, config: Config) -> None:
@@ -69,8 +74,8 @@ class GeometryTriplifier:
     def _read_layer(self, gpkg_path: Path, writer: NTriplesWriter) -> None:
         """
         Reads the features layer in batches and writes one multipoint per
-        feature, at full coordinate precision. Features without a geometry
-        are skipped.
+        feature, at full coordinate precision. Features without a geometry or
+        with an unknown location are skipped.
 
         :param gpkg_path: Path of the extracted GeoPackage.
         :param writer: Writer the geometry triples are added to.
@@ -89,6 +94,9 @@ class GeometryTriplifier:
                 feature_ids.tolist(), shapely.from_wkb(wkb)
             ):
                 if geometry is None or geometry.is_empty:
+                    continue
+                coordinates = shapely.get_coordinates(geometry)
+                if abs(coordinates).max() < self.UNKNOWN_LOCATION_TOLERANCE:
                     continue
                 wkt = shapely.to_wkt(geometry, rounding_precision=-1)
                 self._add_geometry(writer, FeatureIds.normalize(feature_id), wkt)

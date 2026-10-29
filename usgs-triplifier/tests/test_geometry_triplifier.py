@@ -16,6 +16,8 @@ def test_geometries_end_to_end(data_dirs, config):
             1: shapely.MultiPoint([(-117.2, 34.5, 0), (-117.1, 34.6, 0)]),
             2: shapely.MultiPoint([(-115.1, 36.1, 0)]),
             3: None,
+            # USGS's placeholder for an unknown location
+            4: shapely.MultiPoint([(-2.3874235921539366e-11, -2.27e-13, 0)]),
         },
     )
 
@@ -39,6 +41,7 @@ def test_geometries_end_to_end(data_dirs, config):
         f"{Terms.CRS84}MULTIPOINT ((-115.1 36.1))", datatype=wkt_literal
     )
     assert list(graph.predicate_objects(gnisf["3"])) == []
+    assert list(graph.predicate_objects(gnisf["4"])) == []
     assert count == len(graph) == 4
 
 

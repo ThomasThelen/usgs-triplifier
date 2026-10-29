@@ -2,9 +2,11 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, ClassVar
 
 from rdflib import Literal
+from rdflib.namespace import XSD
 
 from ...config import Config
 from ...usgs_products import UsgsProduct, UsgsProducts
@@ -109,11 +111,34 @@ class Triplifier(ABC):
         """
         Builds an English literal of a column value.
 
-        :param value: Column value.
+        :param value: Column value. Surrounding whitespace is removed.
         :param row: Source row (unused).
         :return: The value as an English literal.
         """
-        return Literal(value, lang="en")
+        return Literal(value.strip(), lang="en")
+
+    @classmethod
+    def date_literal(cls, value: str) -> Literal | None:
+        """
+        Builds an xsd:date literal from a date column value.
+
+        :param value: Date as MM/DD/YYYY, or an ISO 8601 date or timestamp
+            such as 1998-10-06T06:13:42.
+        :return: The literal, or None when the value is in neither format,
+            which is logged.
+        """
+        text = value.strip()
+        try:
+            if "/" in text:
+                date = datetime.strptime(text, "%m/%d/%Y")
+            else:
+                date = datetime.fromisoformat(text)
+        except ValueError:
+            cls._log.warning(
+                f"Skipping date {value!r}, which is not MM/DD/YYYY or ISO 8601"
+            )
+            return None
+        return Literal(date.strftime("%Y-%m-%d"), datatype=XSD.date)
 
     def _write_row(
         self,

@@ -1,9 +1,8 @@
+import re
 from collections.abc import Callable
-from datetime import datetime
 from typing import ClassVar
 
 from rdflib import Literal
-from rdflib.namespace import XSD
 
 from ...output_files import OutputFiles
 from ...usgs_products import UsgsProduct, UsgsProducts
@@ -23,6 +22,12 @@ class NamesTriplifier(Triplifier):
 
     product: ClassVar[UsgsProduct] = UsgsProducts.NAMES
     output_name: ClassVar[str] = OutputFiles.NAMES
+
+    # Citation values USGS writes for a name without a citation. "Unknown"
+    # followed by more text names a source whose type is unknown and is kept.
+    UNKNOWN_CITATION: ClassVar[re.Pattern] = re.compile(
+        r"^((Map |Text )?Citation Unknown|Unknown)$"
+    )
 
     def fields(self) -> dict[str, FieldDescriptor | Callable]:
         """
@@ -73,35 +78,32 @@ class NamesTriplifier(Triplifier):
         """
         Builds the gnis:citation of an official name.
 
-        :param value: Citation text.
+        :param value: Citation text. Surrounding whitespace is removed.
         :param row: Source row.
         :return: The citation as an English literal, "gnis:UnknownCitation"
-            when USGS gives "Citation Unknown", or an empty string for a name
-            that is not official or a blank citation.
+            when USGS gives "Citation Unknown", which the current products
+            prefix with the source type ("Text Citation Unknown"), or an
+            empty string for a name that is not official or a blank citation.
         """
-        if not self._is_official(row) or not value.strip():
+        citation = value.strip()
+        if not self._is_official(row) or not citation:
             return ""
-        if value == "Citation Unknown":
+        if self.UNKNOWN_CITATION.match(citation):
             return "gnis:UnknownCitation"
-        return Literal(value, lang="en")
+        return Literal(citation, lang="en")
 
     def date_created_object(self, value: str, row: dict) -> Literal | str:
         """
         Builds the gnis:dateNameCreated of an official name.
 
-        :param value: Date as MM/DD/YYYY.
+        :param value: Date as MM/DD/YYYY or ISO 8601.
         :param row: Source row.
-        :return: An xsd:date literal, the value as a plain literal when it is
-            not MM/DD/YYYY, or an empty string for a name that is not
-            official or a blank date.
+        :return: An xsd:date literal, or an empty string for a name that is
+            not official, a blank date, or a date in neither format.
         """
         if not self._is_official(row) or not value.strip():
             return ""
-        try:
-            date = datetime.strptime(value, "%m/%d/%Y")
-            return Literal(date.strftime("%Y-%m-%d"), datatype=XSD.date)
-        except ValueError:
-            return Literal(value)
+        return self.date_literal(value) or ""
 
     @staticmethod
     def _is_official(row: dict) -> bool:

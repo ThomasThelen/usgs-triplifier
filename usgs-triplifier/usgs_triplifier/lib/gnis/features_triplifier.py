@@ -1,9 +1,8 @@
 from collections.abc import Callable
-from datetime import datetime
 from typing import ClassVar
 
 from rdflib import Literal, URIRef
-from rdflib.namespace import OWL, XSD
+from rdflib.namespace import OWL
 
 from ...config import Config
 from ...output_files import OutputFiles
@@ -45,6 +44,10 @@ class FeaturesTriplifier(Triplifier):
         super().__init__(config)
         # Alias id -> ids of the features with that alias, filled by subject()
         self._aliases: dict[str, list[str]] = {}
+        # Rows skipped by subject() because their state code and number differ
+        self._mismatched_rows = 0
+        # Ids of the features whose elevation has been written
+        self._elevated_features: set[str] = set()
 
     def run(self) -> int:
         """
@@ -56,7 +59,14 @@ class FeaturesTriplifier(Triplifier):
         :raises ValueError: If a feature has no id or class.
         """
         self._aliases = {}
+        self._mismatched_rows = 0
+        self._elevated_features = set()
         count = super().run()
+        if self._mismatched_rows:
+            self._log.warning(
+                f"Skipped {self._mismatched_rows} rows whose state code does not "
+                "match their state number"
+            )
         self._write_aliases()
         return count
 
@@ -67,7 +77,7 @@ class FeaturesTriplifier(Triplifier):
         :return: Mapping of column name to its field mapping.
         """
         fields = {
-            "feature_id": FieldDescriptor("gnis:featureId", self.plain_literal),
+            "feature_id": FieldDescriptor("gnis:featureId", self.feature_id_object),
             "feature_class": FieldDescriptor("rdf:type", self.feature_class_object),
             "state_name": FieldDescriptor(
                 "gnis:state", self.state_object, optional=True
@@ -90,21 +100,28 @@ class FeaturesTriplifier(Triplifier):
             fields["elev_in_ft"] = self.elev_in_ft_field
         return fields
 
-    def subject(self, row: dict[str, str], writer: NTriplesWriter) -> str:
+    def subject(self, row: dict[str, str], writer: NTriplesWriter) -> str | None:
         """
         Builds the feature's IRI and records its alias.
 
         Legacy dumps give only the state code (state_alpha), so this sets
-        row["state_name"] to the full name.
+        row["state_name"] to the full name. A legacy row whose U.S. state code
+        does not match its state number (state_numeric) is skipped. The 2021
+        NationalFile has 52 such rows, which copy Alaska features in the
+        Chugach Census Area under Arizona.
 
         :param row: Source row.
         :param writer: Writer the row's triples go to (unused).
-        :return: The feature's gnisf: IRI.
+        :return: The feature's gnisf: IRI, or None to skip the row.
         """
         feature_id = FeatureIds.normalize(row.get("feature_id", ""))
 
         if not row.get("state_name") and row.get("state_alpha"):
             alpha = row["state_alpha"]
+            number = States.number_for(alpha)
+            if number and row.get("state_numeric") and row["state_numeric"] != number:
+                self._mismatched_rows += 1
+                return None
             row["state_name"] = States.name_for(alpha) or alpha
 
         alias = ".".join(
@@ -118,6 +135,17 @@ class FeaturesTriplifier(Triplifier):
         self._aliases.setdefault(alias, []).append(feature_id)
 
         return f"gnisf:{feature_id}"
+
+    @staticmethod
+    def feature_id_object(value: str, row: dict) -> Literal:
+        """
+        Builds the gnis:featureId literal, in the form used in the IRI.
+
+        :param value: Feature id as read from the source.
+        :param row: Source row (unused).
+        :return: The id without leading zeros, as a plain literal.
+        """
+        return Literal(FeatureIds.normalize(value))
 
     def feature_class_object(self, value: str, row: dict) -> URIRef:
         """
@@ -163,10 +191,14 @@ class FeaturesTriplifier(Triplifier):
         :param value: Primary latitude in decimal degrees.
         :param row: Source row; prim_long_dec and feature_id are read from it.
         :param writer: Writer the asWKT triple is added to.
-        :return: The geosparql:hasGeometry pair, or None when no geometry is written.
+        :return: The geosparql:hasGeometry pair, or None when no geometry is
+            written because a coordinate is missing, not a number or zero.
         """
         lng = row.get("prim_long_dec") or ""
-        if not value or value in ("0.0", "0") or not lng:
+        try:
+            if float(value) == 0 or float(lng) == 0:
+                return None
+        except ValueError:
             return None
 
         feature_id = FeatureIds.normalize(row.get("feature_id", ""))
@@ -184,14 +216,23 @@ class FeaturesTriplifier(Triplifier):
         Builds the gnis:elevation blank node, with the elevation as a
         qudt:numericValue (xsd:double) and qudt:unit unit:FT.
 
+        A legacy dump lists a feature that crosses a state or national border
+        once per state and county, with the same elevation in every row, so
+        only the feature's first elevation is written.
+
         :param value: Elevation in feet.
-        :param row: Source row (unused).
+        :param row: Source row; feature_id is read from it.
         :param writer: Writer the row's triples go to (unused).
-        :return: The gnis:elevation pair, or None when the value is blank or "0".
+        :return: The gnis:elevation pair, or None when the value is blank or
+            "0" or the feature already has an elevation.
         """
         elevation = value.strip()
         if not elevation or elevation == "0":
             return None
+        feature_id = FeatureIds.normalize(row.get("feature_id", ""))
+        if feature_id in self._elevated_features:
+            return None
+        self._elevated_features.add(feature_id)
         return {
             "gnis:elevation": {
                 "qudt:numericValue": [f'^xsd:double"{elevation}'],
@@ -199,24 +240,17 @@ class FeaturesTriplifier(Triplifier):
             },
         }
 
-    def date_object(self, value: str, row: dict) -> Literal:
+    def date_object(self, value: str, row: dict) -> Literal | str:
         """
         Builds a creation or edit date literal.
 
         :param value: Date as MM/DD/YYYY, or an ISO 8601 timestamp such as
             1998-10-06T06:13:42.
         :param row: Source row (unused).
-        :return: An xsd:date literal, or the value as a plain literal when
-            it is in neither format.
+        :return: An xsd:date literal, or an empty string when the value is
+            in neither format, so no triple is written.
         """
-        try:
-            if "T" in value:
-                date = datetime.fromisoformat(value)
-            else:
-                date = datetime.strptime(value, "%m/%d/%Y")
-            return Literal(date.strftime("%Y-%m-%d"), datatype=XSD.date)
-        except ValueError:
-            return Literal(value)
+        return self.date_literal(value) or ""
 
     def _class_name(self, feature_class: str) -> str:
         """

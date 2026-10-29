@@ -77,9 +77,8 @@ def test_features_end_to_end(data_dirs, monkeypatch, config):
     assert list(graph.objects(gnisf["1"], gnis["dateFeatureEdited"])) == [
         Literal("1998-10-06", datatype=XSD.date)
     ]
-    assert list(graph.objects(gnisf["2"], gnis["dateFeatureCreated"])) == [
-        Literal("bogus")
-    ]
+    # A date in neither format is skipped
+    assert list(graph.objects(gnisf["2"], gnis["dateFeatureCreated"])) == []
     assert list(graph.objects(gnisf["2"], gnis["dateFeatureEdited"])) == []
 
     # Check that empty states and counties produce no links
@@ -122,6 +121,20 @@ def test_prim_lat_dec_field_guards(config):
         ft.prim_lat_dec_field("34.5", {"prim_long_dec": "", "feature_id": "1"}, Graph())
         is None
     )
+    # One zero coordinate, or a coordinate that is not a number, is no geometry
+    assert (
+        ft.prim_lat_dec_field(
+            "34.5", {"prim_long_dec": "0", "feature_id": "1"}, Graph()
+        )
+        is None
+    )
+    assert (
+        ft.prim_lat_dec_field(
+            "abc", {"prim_long_dec": "-117.2", "feature_id": "1"}, Graph()
+        )
+        is None
+    )
+    assert ft.feature_id_object("0005", {}) == Literal("5")
     result = ft.prim_lat_dec_field(
         "34.5", {"prim_long_dec": "-117.2", "feature_id": "1"}, Graph()
     )
