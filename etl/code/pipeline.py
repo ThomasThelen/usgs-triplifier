@@ -135,9 +135,20 @@ class Pipeline:
     def add_crosswalks(self) -> None:
         """
         Writes the links of every crosswalk.
+
+        :raises PipelineError: If a crosswalk wrote no file because its source
+            could not be reached. A release without a crosswalk's links
+            would otherwise be published and loaded.
         """
-        for crosswalk in self.CROSSWALKS:
-            crosswalk(self.config).build()
+        failed = [
+            crosswalk.__name__
+            for crosswalk in self.CROSSWALKS
+            if crosswalk(self.config).build() is None
+        ]
+        if failed:
+            raise PipelineError(
+                f"No links were written by {', '.join(failed)}; the release was not published"
+            )
 
     def build_time(self) -> datetime:
         """

@@ -187,7 +187,7 @@ def test_a_truncated_response_is_retried(data_dirs, monkeypatch, config):
     assert len(calls) == 3
 
 
-def test_harvest_failure_is_not_fatal(data_dirs, monkeypatch, config):
+def test_harvest_failure_writes_no_file(data_dirs, monkeypatch, config):
     def boom(*a, **kw):
         raise requests.ConnectionError("no route to wikidata")
 

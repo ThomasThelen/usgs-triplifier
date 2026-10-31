@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 import requests
@@ -181,3 +182,44 @@ def test_legacy_releases_are_read_comma_separated(monkeypatch):
     assert EtlConfig().legacy_releases == ["2021-08-25", "2019-01-01"]
     monkeypatch.setenv("LEGACY_RELEASES", "")
     assert EtlConfig().legacy_releases == []
+
+
+def _crosswalk(name: str, result: Path | None, built: list[str]) -> type:
+    """
+    Builds a crosswalk class whose build records its name and returns result.
+
+    :param name: Name of the class.
+    :param result: What build returns.
+    :param built: List the class's name is appended to on build.
+    :return: The class.
+    """
+
+    def build(self) -> Path | None:
+        built.append(name)
+        return result
+
+    return type(name, (), {"__init__": lambda self, config: None, "build": build})
+
+
+def test_add_crosswalks_fails_when_a_crosswalk_writes_nothing(etl_config, monkeypatch):
+    built: list[str] = []
+    crosswalks = (
+        _crosswalk("FailingCrosswalk", None, built),
+        _crosswalk("WorkingCrosswalk", Path("links.nt.gz"), built),
+    )
+    monkeypatch.setattr(Pipeline, "CROSSWALKS", crosswalks)
+
+    with pytest.raises(PipelineError, match="by FailingCrosswalk;"):
+        Pipeline(etl_config).add_crosswalks()
+    # Every crosswalk runs, so the error names all that failed
+    assert built == ["FailingCrosswalk", "WorkingCrosswalk"]
+
+
+def test_add_crosswalks_passes_when_every_crosswalk_writes_links(
+    etl_config, monkeypatch
+):
+    built: list[str] = []
+    crosswalks = (_crosswalk("WorkingCrosswalk", Path("links.nt.gz"), built),)
+    monkeypatch.setattr(Pipeline, "CROSSWALKS", crosswalks)
+    Pipeline(etl_config).add_crosswalks()
+    assert built == ["WorkingCrosswalk"]
