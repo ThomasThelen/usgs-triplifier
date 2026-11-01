@@ -58,7 +58,7 @@ def test_release_records_sources_and_pipeline(data_dirs, config):
 
 def test_legacy_dump_release_records_the_legacy_sources(data_dirs, monkeypatch, config):
     _, output_dir = data_dirs
-    config.legacy_dump_date = "2021-08-25"
+    config.legacy_dump = True
     graph = _write_and_parse(config)
     release = URIRef(f"{config.lod_base}/gnis/release/{BUILD_ID}")
 

@@ -121,50 +121,57 @@ def test_load_graphdb_wraps_request_errors(etl_config, fake_adapter):
     assert "copy_triples" not in fake_adapter.calls
 
 
-def test_build_time_prefers_the_legacy_dump_date(etl_config):
+def test_build_time_of_the_legacy_dump_is_its_date(etl_config):
     etl_config.release_date = "2026-10-17"
     assert Pipeline(etl_config).build_time() == datetime(
         2026, 10, 17, tzinfo=timezone.utc
     )
 
-    etl_config.legacy_dump_date = "2021-08-25"
+    etl_config.legacy_dump = True
     assert Pipeline(etl_config).build_time() == datetime(
         2021, 8, 25, tzinfo=timezone.utc
     )
 
 
 @pytest.fixture()
-def pipeline_runs(monkeypatch) -> list[str | None]:
+def pipeline_runs(monkeypatch) -> list[bool]:
     """
-    Replaces Pipeline.run with a recorder of each run's LEGACY_DUMP_DATE.
+    Replaces Pipeline.run with a recorder of each run's LEGACY_DUMP value.
 
     :param monkeypatch: pytest monkeypatch.
-    :return: The recorded dates, None for a current release.
+    :return: True for each legacy release, False for each current release.
     """
-    runs: list[str | None] = []
+    runs: list[bool] = []
     monkeypatch.setattr(
-        Pipeline, "run", lambda self: runs.append(self.config.legacy_dump_date)
+        Pipeline, "run", lambda self: runs.append(self.config.legacy_dump)
     )
     return runs
 
 
-def test_publisher_builds_missing_legacy_releases_first(etl_config, pipeline_runs):
-    etl_config.legacy_releases = ["2021-08-25", "2019-01-01"]
+def test_publisher_builds_a_missing_legacy_release_first(etl_config, pipeline_runs):
     ReleasePublisher(etl_config).run()
-    assert pipeline_runs == ["2019-01-01", "2021-08-25", None]
+    assert pipeline_runs == [True, False]
 
 
-def test_publisher_skips_legacy_releases_in_the_archive(etl_config, pipeline_runs):
+def test_publisher_skips_the_legacy_release_when_disabled(etl_config, pipeline_runs):
+    etl_config.publish_legacy_release = False
+    ReleasePublisher(etl_config).run()
+    assert pipeline_runs == [False]
+
+
+def test_publisher_skips_a_legacy_release_in_the_archive(etl_config, pipeline_runs):
     etl_config.archive_output_directory.mkdir(parents=True, exist_ok=True)
     (etl_config.archive_output_directory / "gnis-ld-210825.nt.gz").touch()
     ReleasePublisher(etl_config).run()
-    assert pipeline_runs == [None]
+    assert pipeline_runs == [False]
 
 
-def test_publisher_only_builds_the_legacy_dump_date(etl_config, pipeline_runs):
-    etl_config.legacy_dump_date = "2021-08-25"
+def test_publisher_only_builds_the_legacy_release_for_a_legacy_dump(
+    etl_config, pipeline_runs
+):
+    etl_config.legacy_dump = True
     ReleasePublisher(etl_config).run()
-    assert pipeline_runs == ["2021-08-25"]
+    assert pipeline_runs == [True]
 
 
 def test_publisher_stops_when_a_legacy_release_fails(etl_config, monkeypatch):
@@ -174,14 +181,6 @@ def test_publisher_stops_when_a_legacy_release_fails(etl_config, monkeypatch):
     monkeypatch.setattr(Pipeline, "run", fail)
     with pytest.raises(PipelineError):
         ReleasePublisher(etl_config).run()
-
-
-def test_legacy_releases_are_read_comma_separated(monkeypatch):
-    monkeypatch.setenv("GDB_PASS", "secret")
-    monkeypatch.setenv("LEGACY_RELEASES", "2021-08-25, 2019-01-01")
-    assert EtlConfig().legacy_releases == ["2021-08-25", "2019-01-01"]
-    monkeypatch.setenv("LEGACY_RELEASES", "")
-    assert EtlConfig().legacy_releases == []
 
 
 def _crosswalk(name: str, result: Path | None, built: list[str]) -> type:

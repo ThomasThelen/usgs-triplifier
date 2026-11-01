@@ -66,6 +66,10 @@ class UsgsProducts:
     BUCKET: ClassVar[str] = "prd-tnm"
     S3_BASE: ClassVar[str] = f"https://{BUCKET}.s3.amazonaws.com"
 
+    # Date of the legacy dump under the legacy keys. USGS no longer updates
+    # that format, so the legacy keys always contain this dump.
+    LEGACY_DUMP_DATE: ClassVar[str] = "2021-08-25"
+
     GEOPACKAGE: ClassVar[UsgsProduct] = UsgsProduct(
         key="StagedProducts/GeographicNames/FullModel/Gazetteer_National_GPKG.zip",
         pattern="*_GPKG.zip",

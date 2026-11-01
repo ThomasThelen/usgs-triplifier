@@ -1,8 +1,7 @@
 from pathlib import Path
-from typing import Annotated, ClassVar
+from typing import ClassVar
 
-from pydantic import Field, field_validator
-from pydantic_settings import NoDecode
+from pydantic import Field
 
 from usgs_triplifier.config import Config
 
@@ -47,23 +46,5 @@ class EtlConfig(Config):
     # When false, the files already in the input directory are used
     download_data: bool = Field(default=True, alias="DOWNLOAD_DATA")
 
-    # Dates (YYYY-MM-DD) of the legacy dumps that are published as releases.
-    # Each one without a release file in the archive output directory is
-    # built before the current release. The environment variable is a
-    # comma-separated list, and an empty value disables the legacy releases.
-    legacy_releases: Annotated[list[str], NoDecode] = Field(
-        default=["2021-08-25"], alias="LEGACY_RELEASES"
-    )
-
-    @field_validator("legacy_releases", mode="before")
-    @classmethod
-    def _split_dates(cls, value: str | list[str]) -> list[str]:
-        """
-        Splits the comma-separated LEGACY_RELEASES value into dates.
-
-        :param value: The environment value, or a list of dates.
-        :return: The dates, without blanks.
-        """
-        if isinstance(value, str):
-            return [date.strip() for date in value.split(",") if date.strip()]
-        return value
+    # Whether the legacy dump is published as a release.
+    publish_legacy_release: bool = Field(default=True, alias="PUBLISH_LEGACY_RELEASE")

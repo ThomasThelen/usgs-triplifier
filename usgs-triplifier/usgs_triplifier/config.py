@@ -39,14 +39,14 @@ class Config(BaseSettings):
     # Public website base URL, used for release download links in metadata
     site_base: str = Field(default="https://gnis-ld.org", alias="SITE_BASE")
 
-    # Date (YYYY-MM-DD) of the legacy dump in the input directory. A legacy
-    # dump is a GNIS export in the file format USGS used until 2021. When set,
-    # the triplifiers read that format and the release is dated with this
-    # value. When unset, the current USGS products are read.
-    legacy_dump_date: str | None = Field(default=None, alias="LEGACY_DUMP_DATE")
+    # Whether the input directory holds the legacy dump, a GNIS export in the
+    # file format USGS used until 2021. When true, the triplifiers read that
+    # format and the release is dated UsgsProducts.LEGACY_DUMP_DATE. When
+    # false, the current USGS products are read.
+    legacy_dump: bool = Field(default=False, alias="LEGACY_DUMP")
 
     # Date (YYYY-MM-DD) to put on the release instead of the time of the run.
-    # Ignored when legacy_dump_date is set.
+    # Ignored when legacy_dump is true.
     release_date: str | None = Field(default=None, alias="RELEASE_DATE")
 
     # SPARQL endpoint the Wikidata crosswalk queries for items with a GNIS id (P590)
@@ -117,15 +117,6 @@ class Config(BaseSettings):
         "ago": Namespace("http://awesemantic-geo.link/ontology/"),
         "geonames": Namespace("http://sws.geonames.org/"),
     }
-
-    @property
-    def legacy_dump(self) -> bool:
-        """
-        Reports whether the input directory holds a legacy dump.
-
-        :return: True when legacy_dump_date is set.
-        """
-        return self.legacy_dump_date is not None
 
     @computed_field
     @property

@@ -23,6 +23,7 @@ from usgs_triplifier.lib.retention import RetentionBuilder
 from usgs_triplifier.lib.validation import ReleaseValidator
 from usgs_triplifier.lib.wikidata_crosswalk import WikidataCrosswalk
 from usgs_triplifier.output_files import OutputFiles
+from usgs_triplifier.usgs_products import UsgsProducts
 
 from config import EtlConfig
 from graphdb_adapter import GraphDBAdapter, GraphDBImportError
@@ -105,7 +106,7 @@ class Pipeline:
     def download(self) -> None:
         """
         Downloads the USGS products into the input directory, or the legacy
-        dump when LEGACY_DUMP_DATE is set, unless DOWNLOAD_DATA is false.
+        dump when LEGACY_DUMP is true, unless DOWNLOAD_DATA is false.
         """
         if self.config.download_data:
             DatasetDownloader(self.config.input_directory).download(
@@ -152,12 +153,17 @@ class Pipeline:
 
     def build_time(self) -> datetime:
         """
-        Picks the time the release is dated with. This is LEGACY_DUMP_DATE
-        when set, otherwise RELEASE_DATE, otherwise the current time.
+        Picks the time the release is dated with. This is the date of the
+        legacy dump when LEGACY_DUMP is true, otherwise RELEASE_DATE,
+        otherwise the current time.
 
         :return: The time, in UTC.
         """
-        release_date = self.config.legacy_dump_date or self.config.release_date
+        release_date = (
+            UsgsProducts.LEGACY_DUMP_DATE
+            if self.config.legacy_dump
+            else self.config.release_date
+        )
         if release_date:
             return datetime.fromisoformat(release_date).replace(tzinfo=timezone.utc)
         return datetime.now(timezone.utc)
@@ -219,8 +225,8 @@ class Pipeline:
 
 class ReleasePublisher:
     """
-    Publishes the legacy releases missing from the archive output directory,
-    then the current release.
+    Publishes the legacy release when it is missing from the archive output
+    directory, then the current release.
     """
 
     _log: ClassVar[logging.Logger] = logging.getLogger(__name__)
@@ -235,36 +241,35 @@ class ReleasePublisher:
 
     def run(self) -> None:
         """
-        Publishes each missing legacy release in date order, then the current
-        release. When LEGACY_DUMP_DATE is set, only that legacy dump is
+        Publishes the legacy release when it is missing, then the current
+        release. When LEGACY_DUMP is true, only the legacy release is
         published.
 
-        :raises PipelineError: If a release can't be published. The releases
-            after it are not built.
+        :raises PipelineError: If a release can't be published. The current
+            release is not built after a failed legacy release.
         """
         if self.config.legacy_dump:
             Pipeline(self.config).run()
             return
-        for date in self.missing_legacy_releases():
-            self._log.info(f"Publishing the legacy release of {date}")
-            Pipeline(self.config.model_copy(update={"legacy_dump_date": date})).run()
+        if self.legacy_release_missing():
+            self._log.info(
+                f"Publishing the legacy release of {UsgsProducts.LEGACY_DUMP_DATE}"
+            )
+            Pipeline(self.config.model_copy(update={"legacy_dump": True})).run()
         Pipeline(self.config).run()
 
-    def missing_legacy_releases(self) -> list[str]:
+    def legacy_release_missing(self) -> bool:
         """
-        Lists the LEGACY_RELEASES dates whose release file is not in the
-        archive output directory.
+        Checks whether the legacy release is published and its release file
+        is not in the archive output directory.
 
-        :return: The dates in date order.
+        :return: True when the legacy release has to be built.
         """
-        archive_dir = self.config.archive_output_directory
-        return [
-            date
-            for date in sorted(self.config.legacy_releases)
-            if not (
-                archive_dir
-                / OutputFiles.release(
-                    OutputFiles.release_id(datetime.fromisoformat(date))
-                )
-            ).exists()
-        ]
+        if not self.config.publish_legacy_release:
+            return False
+        release_id = OutputFiles.release_id(
+            datetime.fromisoformat(UsgsProducts.LEGACY_DUMP_DATE)
+        )
+        return not (
+            self.config.archive_output_directory / OutputFiles.release(release_id)
+        ).exists()

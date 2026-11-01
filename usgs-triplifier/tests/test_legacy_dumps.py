@@ -32,7 +32,7 @@ def _national_file_zip(input_dir):
 
 def test_features_from_legacy_national_file(data_dirs, monkeypatch, config):
     input_dir, output_dir = data_dirs
-    config.legacy_dump_date = "2021-08-25"
+    config.legacy_dump = True
     _national_file_zip(input_dir)
 
     FeaturesTriplifier(config).run()
@@ -82,7 +82,7 @@ def test_features_from_legacy_national_file(data_dirs, monkeypatch, config):
 
 def test_row_whose_state_code_and_number_differ_is_skipped(data_dirs, config):
     input_dir, output_dir = data_dirs
-    config.legacy_dump_date = "2021-08-25"
+    config.legacy_dump = True
     airport = (
         "|Boswell Bay Airport|Airport|{}|02||063|||60.42306|-146.14591|||||62|203"
         "|Cordova|07/01/1995|06/23/2021"
@@ -127,7 +127,7 @@ def test_row_whose_state_code_and_number_differ_is_skipped(data_dirs, config):
 
 def test_names_from_legacy_all_names(data_dirs, monkeypatch, config):
     input_dir, output_dir = data_dirs
-    config.legacy_dump_date = "2021-08-25"
+    config.legacy_dump = True
     make_text_zip(
         input_dir,
         "AllNames.zip",
@@ -175,7 +175,7 @@ def test_names_from_legacy_all_names(data_dirs, monkeypatch, config):
 
 def test_history_from_legacy_description_history(data_dirs, monkeypatch, config):
     input_dir, output_dir = data_dirs
-    config.legacy_dump_date = "2021-08-25"
+    config.legacy_dump = True
     make_text_zip(
         input_dir,
         "Feature_Description_History.zip",
@@ -211,7 +211,7 @@ def test_history_from_legacy_description_history(data_dirs, monkeypatch, config)
 
 def test_units_from_legacy_govt_units(data_dirs, monkeypatch, config):
     input_dir, output_dir = data_dirs
-    config.legacy_dump_date = "2021-08-25"
+    config.legacy_dump = True
     make_text_zip(
         input_dir,
         "GOVT_UNITS.zip",
@@ -245,7 +245,7 @@ def test_units_from_legacy_govt_units(data_dirs, monkeypatch, config):
 
 def test_geonames_loader_reads_legacy_national_file(data_dirs, monkeypatch, config):
     input_dir, _ = data_dirs
-    config.legacy_dump_date = "2021-08-25"
+    config.legacy_dump = True
     _national_file_zip(input_dir)
 
     gnis = GeoNamesCrosswalk(config)._load_gnis()
